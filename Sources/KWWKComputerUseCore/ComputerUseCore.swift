@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreServices
-import Crypto
+import CryptoKit
 import Foundation
 
 struct CUWindowSnapshot {
