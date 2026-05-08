@@ -24,12 +24,24 @@ public final class ComputerUseClient: @unchecked Sendable {
         ComputerUseAction.listApps()
     }
 
+    public func apps() -> [ComputerUseAppDescriptor] {
+        ComputerUseCore.listApps()
+    }
+
+    public func runningApps() -> [RunningAppDescriptor] {
+        ComputerUseCore.listRunningApps()
+    }
+
     public func openApp(_ appIdentifier: String) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.openApp(appIdentifier: appIdentifier)
     }
 
     public func listWindows(app appIdentifier: String) throws -> ComputerUseCommandOutput {
         try ComputerUseAction.listWindows(appIdentifier: appIdentifier)
+    }
+
+    public func windows(app appIdentifier: String) throws -> [ComputerUseWindowDescriptor] {
+        try ComputerUseCore.listWindows(appIdentifier: appIdentifier)
     }
 
     public func getAppState(

@@ -17,6 +17,34 @@ public struct ComputerUseSnapshotMetadata: Codable, Equatable, Sendable {
     public var screenshotSize: CGSizeCodable?
     public var fingerprint: String
     public var nodeSignatures: [CachedNodeSignature]
+
+    public init(
+        id: String,
+        createdAt: Date,
+        appName: String,
+        bundleID: String,
+        pid: pid_t,
+        windowTitle: String,
+        windowID: Int,
+        windowFrame: CGRectCodable,
+        screenshotPath: String?,
+        screenshotSize: CGSizeCodable?,
+        fingerprint: String,
+        nodeSignatures: [CachedNodeSignature]
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.appName = appName
+        self.bundleID = bundleID
+        self.pid = pid
+        self.windowTitle = windowTitle
+        self.windowID = windowID
+        self.windowFrame = windowFrame
+        self.screenshotPath = screenshotPath
+        self.screenshotSize = screenshotSize
+        self.fingerprint = fingerprint
+        self.nodeSignatures = nodeSignatures
+    }
 }
 
 public struct CachedNodeSignature: Codable, Equatable, Sendable {
@@ -27,6 +55,24 @@ public struct CachedNodeSignature: Codable, Equatable, Sendable {
     public var description: String?
     public var identifier: String
     public var childIndexAmongSameRole: Int
+
+    public init(
+        depth: Int,
+        role: String,
+        subrole: String,
+        title: String,
+        description: String?,
+        identifier: String,
+        childIndexAmongSameRole: Int
+    ) {
+        self.depth = depth
+        self.role = role
+        self.subrole = subrole
+        self.title = title
+        self.description = description
+        self.identifier = identifier
+        self.childIndexAmongSameRole = childIndexAmongSameRole
+    }
 }
 
 public struct CGRectCodable: Codable, Equatable, Sendable {
@@ -42,6 +88,13 @@ public struct CGRectCodable: Codable, Equatable, Sendable {
         height = rect.size.height
     }
 
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
     public var cgRect: CGRect {
         CGRect(x: x, y: y, width: width, height: height)
     }
@@ -54,6 +107,11 @@ public struct CGSizeCodable: Codable, Equatable, Sendable {
     public init(_ size: CGSize) {
         width = size.width
         height = size.height
+    }
+
+    public init(width: Double, height: Double) {
+        self.width = width
+        self.height = height
     }
 
     public var cgSize: CGSize {
@@ -128,6 +186,13 @@ public struct RunningAppDescriptor: Equatable, Sendable {
     public var bundleID: String
     public var pid: pid_t
     public var isActive: Bool
+
+    public init(name: String, bundleID: String, pid: pid_t, isActive: Bool) {
+        self.name = name
+        self.bundleID = bundleID
+        self.pid = pid
+        self.isActive = isActive
+    }
 }
 
 public struct ComputerUseAppDescriptor: Equatable, Sendable {
@@ -138,15 +203,49 @@ public struct ComputerUseAppDescriptor: Equatable, Sendable {
     public var isFrontmost: Bool
     public var lastUsedDate: Date?
     public var useCount: Int?
+
+    public init(
+        name: String,
+        bundleID: String,
+        pid: pid_t?,
+        isRunning: Bool,
+        isFrontmost: Bool,
+        lastUsedDate: Date?,
+        useCount: Int?
+    ) {
+        self.name = name
+        self.bundleID = bundleID
+        self.pid = pid
+        self.isRunning = isRunning
+        self.isFrontmost = isFrontmost
+        self.lastUsedDate = lastUsedDate
+        self.useCount = useCount
+    }
 }
 
-struct RunningWindowDescriptor: Equatable, Sendable {
-    var appName: String
-    var bundleID: String
-    var pid: pid_t
-    var windowID: Int
-    var title: String
-    var isMain: Bool
+public struct ComputerUseWindowDescriptor: Equatable, Sendable {
+    public var appName: String
+    public var bundleID: String
+    public var pid: pid_t
+    public var windowID: Int
+    public var title: String
+    public var isMain: Bool
+
+    public init(
+        appName: String,
+        bundleID: String,
+        pid: pid_t,
+        windowID: Int,
+        title: String,
+        isMain: Bool
+    ) {
+        self.appName = appName
+        self.bundleID = bundleID
+        self.pid = pid
+        self.windowID = windowID
+        self.title = title
+        self.isMain = isMain
+    }
 }
 
 public struct ComputerUseCommandOutput: Codable, Sendable {
@@ -747,7 +846,7 @@ enum ComputerUseCore {
         return formatter.string(from: date)
     }
 
-    static func listWindows(appIdentifier: String) throws -> [RunningWindowDescriptor] {
+    static func listWindows(appIdentifier: String) throws -> [ComputerUseWindowDescriptor] {
         guard AXIsProcessTrusted() else {
             throw ComputerUseError.accessibilityPermissionDenied
         }
@@ -762,7 +861,7 @@ enum ComputerUseCore {
         let appName = app.localizedName ?? app.bundleIdentifier ?? "Unknown"
         let bundleID = app.bundleIdentifier ?? ""
         return windowCandidates(in: appElement, app: app).map { candidate in
-            RunningWindowDescriptor(
+            ComputerUseWindowDescriptor(
                 appName: appName,
                 bundleID: bundleID,
                 pid: app.processIdentifier,
