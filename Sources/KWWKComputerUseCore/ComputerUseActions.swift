@@ -8,37 +8,25 @@ public enum ComputerUseAction {
         includeScreenshot: Bool,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) throws -> ComputerUseCommandOutput {
-        do {
-            let snapshot = try ComputerUseCore.captureSnapshot(
-                appIdentifier: appIdentifier,
-                selection: WindowSelection(titleSubstring: windowTitle),
-                includeScreenshot: includeScreenshot,
-                screenshotCompression: screenshotCompression
-            )
-            return try ComputerUseCore.persistAndFormat(snapshot: snapshot)
-        } catch let error as ComputerUseError {
-            guard case .windowNotFound = error,
-                  let windowTitle,
-                  windowTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            else {
-                throw error
-            }
-
-            let snapshot = try ComputerUseCore.captureSnapshot(
-                appIdentifier: appIdentifier,
-                includeScreenshot: includeScreenshot,
-                screenshotCompression: screenshotCompression
-            )
-            let output = try ComputerUseCore.persistAndFormat(snapshot: snapshot)
-            return ComputerUseCommandOutput(
-                text: """
-                Requested window_title "\(windowTitle)" was not found; returned the current \(appIdentifier) window instead. After navigation, prefer omitting window_title unless you need a specific stable window.
-
-                \(output.text)
-                """,
-                metadata: output.metadata
-            )
+        let result = try captureSnapshotWithWindowFallback(
+            appIdentifier: appIdentifier,
+            windowTitle: windowTitle,
+            includeScreenshot: includeScreenshot,
+            screenshotCompression: screenshotCompression
+        )
+        let output = try ComputerUseCore.persistAndFormat(snapshot: result.snapshot)
+        guard result.usedWindowFallback, let windowTitle else {
+            return output
         }
+
+        return ComputerUseCommandOutput(
+            text: """
+            Requested window_title "\(windowTitle)" was not found; returned the current \(appIdentifier) window instead. After navigation, prefer omitting window_title unless you need a specific stable window.
+
+            \(output.text)
+            """,
+            metadata: output.metadata
+        )
     }
 
     public static func getStructuredAppState(
@@ -47,29 +35,13 @@ public enum ComputerUseAction {
         includeScreenshot: Bool,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) throws -> ComputerUseState {
-        do {
-            let snapshot = try ComputerUseCore.captureSnapshot(
-                appIdentifier: appIdentifier,
-                selection: WindowSelection(titleSubstring: windowTitle),
-                includeScreenshot: includeScreenshot,
-                screenshotCompression: screenshotCompression
-            )
-            return try ComputerUseCore.persistAndBuildState(snapshot: snapshot)
-        } catch let error as ComputerUseError {
-            guard case .windowNotFound = error,
-                  let windowTitle,
-                  windowTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            else {
-                throw error
-            }
-
-            let snapshot = try ComputerUseCore.captureSnapshot(
-                appIdentifier: appIdentifier,
-                includeScreenshot: includeScreenshot,
-                screenshotCompression: screenshotCompression
-            )
-            return try ComputerUseCore.persistAndBuildState(snapshot: snapshot)
-        }
+        let result = try captureSnapshotWithWindowFallback(
+            appIdentifier: appIdentifier,
+            windowTitle: windowTitle,
+            includeScreenshot: includeScreenshot,
+            screenshotCompression: screenshotCompression
+        )
+        return try ComputerUseCore.persistAndBuildState(snapshot: result.snapshot)
     }
 
     public static func listApps() -> ComputerUseCommandOutput {

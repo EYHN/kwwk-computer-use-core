@@ -2,6 +2,37 @@ import ApplicationServices
 import Foundation
 
 extension ComputerUseAction {
+    static func captureSnapshotWithWindowFallback(
+        appIdentifier: String,
+        windowTitle: String?,
+        includeScreenshot: Bool,
+        screenshotCompression: ComputerUseScreenshotCompression
+    ) throws -> (snapshot: RuntimeAppSnapshot, usedWindowFallback: Bool) {
+        do {
+            let snapshot = try ComputerUseCore.captureSnapshot(
+                appIdentifier: appIdentifier,
+                selection: WindowSelection(titleSubstring: windowTitle),
+                includeScreenshot: includeScreenshot,
+                screenshotCompression: screenshotCompression
+            )
+            return (snapshot, false)
+        } catch let error as ComputerUseError {
+            guard case .windowNotFound = error,
+                  let windowTitle,
+                  windowTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            else {
+                throw error
+            }
+
+            let snapshot = try ComputerUseCore.captureSnapshot(
+                appIdentifier: appIdentifier,
+                includeScreenshot: includeScreenshot,
+                screenshotCompression: screenshotCompression
+            )
+            return (snapshot, true)
+        }
+    }
+
     static func localPoint(
         node: RuntimeAXNode,
         in snapshot: RuntimeAppSnapshot
