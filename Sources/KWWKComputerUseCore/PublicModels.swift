@@ -116,7 +116,7 @@ public struct CGSizeCodable: Codable, Equatable, Sendable {
     }
 }
 
-public enum ComputerUseError: Error, CustomStringConvertible {
+public enum ComputerUseError: Error, CustomStringConvertible, LocalizedError {
     case accessibilityPermissionDenied
     case appNotFound(String)
     case appNotRunning(String)
@@ -175,6 +175,10 @@ public enum ComputerUseError: Error, CustomStringConvertible {
         case let .snapshotStoreFailure(message):
             return "snapshotStoreFailure \(message)"
         }
+    }
+
+    public var errorDescription: String? {
+        description
     }
 }
 

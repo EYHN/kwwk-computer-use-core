@@ -99,4 +99,71 @@ struct PublicAPITests {
         _ = client.apps()
         _ = client.runningApps()
     }
+
+    @Test("structured state is codable across integration boundaries")
+    func structuredStateIsCodableAcrossIntegrationBoundaries() throws {
+        let signature = CachedNodeSignature(
+            depth: 1,
+            role: "AXButton",
+            subrole: "",
+            title: "Reload",
+            description: "Reload this page",
+            identifier: "reload-button",
+            childIndexAmongSameRole: 2
+        )
+        let metadata = ComputerUseSnapshotMetadata(
+            id: "snapshot",
+            createdAt: Date(timeIntervalSince1970: 0),
+            appName: "Chrome",
+            bundleID: "com.google.Chrome",
+            pid: 321,
+            windowTitle: "Example",
+            windowID: 654,
+            windowFrame: CGRectCodable(x: 0, y: 0, width: 1200, height: 800),
+            screenshotPath: "/tmp/snapshot.jpg",
+            screenshotSize: CGSizeCodable(width: 600, height: 400),
+            fingerprint: "abc123",
+            nodeSignatures: [signature]
+        )
+        let node = ComputerUseNode(
+            index: 4,
+            parentIndex: 1,
+            depth: 2,
+            role: "AXButton",
+            subrole: "",
+            title: "Reload",
+            description: "Reload this page",
+            value: nil,
+            help: "Reload",
+            identifier: "reload-button",
+            url: nil,
+            enabled: true,
+            selected: false,
+            expanded: nil,
+            focused: nil,
+            frame: CGRectCodable(x: 10, y: 20, width: 30, height: 40),
+            actions: ["AXPress"],
+            isValueSettable: false,
+            valueTypeDescription: nil
+        )
+        let state = ComputerUseState(
+            metadata: metadata,
+            focusedElementIndex: nil,
+            selectedText: nil,
+            nodes: [node]
+        )
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(ComputerUseState.self, from: data)
+
+        #expect(decoded == state)
+    }
+
+    @Test("computer use errors provide localized descriptions")
+    func computerUseErrorsProvideLocalizedDescriptions() {
+        let error = ComputerUseError.coordinateActionRequiresScreenshot
+
+        #expect(error.errorDescription == error.description)
+        #expect((error as NSError).localizedDescription == error.description)
+    }
 }
