@@ -1,7 +1,15 @@
 import Foundation
 
+/// Product-facing facade for macOS computer-use actions.
+///
+/// Keep one client alive for a related sequence of actions so background
+/// activation and focus suppression state can be reused across calls. Call
+/// `finish()` when the interaction sequence is complete.
 public final class ComputerUseClient: @unchecked Sendable {
+    /// Shared action session used for background activation and action history.
     public let session: ComputerUseSession
+
+    /// Screenshot compression policy used by state and post-action captures.
     public var screenshotCompression: ComputerUseScreenshotCompression
 
     public init(
@@ -16,34 +24,47 @@ public final class ComputerUseClient: @unchecked Sendable {
         finish()
     }
 
+    /// Restores any background activation state held by the session.
     public func finish() {
         session.finish()
     }
 
+    /// Returns an agent-facing formatted list of installed and running apps.
     public func listApps() -> ComputerUseCommandOutput {
         ComputerUseAction.listApps()
     }
 
+    /// Returns structured installed and running app descriptors.
     public func apps() -> [ComputerUseAppDescriptor] {
         ComputerUseCore.listApps()
     }
 
+    /// Returns structured descriptors for currently running GUI apps.
     public func runningApps() -> [RunningAppDescriptor] {
         ComputerUseCore.listRunningApps()
     }
 
+    /// Opens an app by bundle identifier, exact name, partial name, or `.app` path.
+    ///
+    /// The app is launched without forcing foreground activation when possible.
     public func openApp(_ appIdentifier: String) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.openApp(appIdentifier: appIdentifier)
     }
 
+    /// Returns an agent-facing formatted list of readable windows for an app.
     public func listWindows(app appIdentifier: String) throws -> ComputerUseCommandOutput {
         try ComputerUseAction.listWindows(appIdentifier: appIdentifier)
     }
 
+    /// Returns structured readable windows for a running app.
     public func windows(app appIdentifier: String) throws -> [ComputerUseWindowDescriptor] {
         try ComputerUseCore.listWindows(appIdentifier: appIdentifier)
     }
 
+    /// Captures an app state snapshot formatted for agent prompts.
+    ///
+    /// The returned metadata contains a snapshot ID that action calls use to
+    /// validate state freshness and resolve element indexes.
     public func getAppState(
         app appIdentifier: String,
         windowTitle: String? = nil,
@@ -57,6 +78,11 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Captures an app state snapshot as structured data.
+    ///
+    /// Prefer this for product integrations that should not parse formatted
+    /// prompt text. The returned `metadata.id` is the snapshot ID for follow-up
+    /// action calls.
     public func state(
         app appIdentifier: String,
         windowTitle: String? = nil,
@@ -70,6 +96,7 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Clicks an element from a previously captured snapshot.
     public func click(
         snapshotID: String,
         elementIndex: Int,
@@ -86,6 +113,10 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Clicks a screenshot pixel coordinate from a screenshot-backed snapshot.
+    ///
+    /// Coordinate clicks require the snapshot to have been captured with
+    /// `includeScreenshot: true`.
     public func click(
         snapshotID: String,
         x: Double,
@@ -103,6 +134,7 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Types text into an explicit editable element or the focused editable element.
     public func typeText(
         snapshotID: String,
         text: String,
@@ -119,6 +151,7 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Sets `AXValue` on a value-settable element.
     public func setValue(
         snapshotID: String,
         elementIndex: Int,
@@ -135,6 +168,7 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Sends a key or key combination to the snapshot target.
     public func pressKey(
         snapshotID: String,
         key: String,
@@ -149,6 +183,7 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Scrolls from an element using AX scrolling when available, with wheel fallback.
     public func scroll(
         snapshotID: String,
         elementIndex: Int,
@@ -167,6 +202,7 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Performs a secondary AX action by raw action name or display action name.
     public func performSecondaryAction(
         snapshotID: String,
         elementIndex: Int,
@@ -183,6 +219,10 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    /// Drags between two screenshot pixel coordinates from a screenshot-backed snapshot.
+    ///
+    /// Drag coordinates require the snapshot to have been captured with
+    /// `includeScreenshot: true`.
     public func drag(
         snapshotID: String,
         fromX: Double,

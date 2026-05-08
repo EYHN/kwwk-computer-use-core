@@ -31,18 +31,37 @@ Then add `KWWKComputerUseCore` to your target dependencies:
 
 ## Usage
 
+Structured product integration:
+
 ```swift
 import KWWKComputerUseCore
 
 let cu = ComputerUseClient()
+defer { cu.finish() }
+
+let state = try cu.state(app: "Google Chrome")
+let button = state.nodes.first {
+    $0.role == "AXButton" && $0.title == "Reload"
+}
+
+if let button {
+    try await cu.click(snapshotID: state.metadata.id, elementIndex: button.index)
+}
+```
+
+Agent-facing formatted output:
+
+```swift
+import KWWKComputerUseCore
+
+let cu = ComputerUseClient()
+defer { cu.finish() }
 
 let state = try cu.getAppState(app: "Google Chrome")
 let snapshotID = state.metadata!.id
 
 try await cu.click(snapshotID: snapshotID, elementIndex: 171)
 try await cu.pressKey(snapshotID: snapshotID, key: "Escape")
-
-cu.finish()
 ```
 
 ## Actions
@@ -68,6 +87,8 @@ The calling process needs macOS Accessibility permission for most actions.
 Use `apps()`, `runningApps()`, `windows(app:)`, and `state(app:)` when
 integrating from product code that needs structured values instead of
 agent-facing formatted text.
+Coordinate `click` and `drag` calls require a snapshot captured with
+`includeScreenshot: true`; element-index actions only need the snapshot metadata.
 
 ## Testing
 
