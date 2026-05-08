@@ -29,6 +29,12 @@ Then add `KWWKComputerUseCore` to your target dependencies:
 .product(name: "KWWKComputerUseCore", package: "kwwk-computer-use-core")
 ```
 
+After version tags are published, prefer a semver requirement:
+
+```swift
+.package(url: "https://github.com/EYHN/kwwk-computer-use-core.git", from: "0.1.0")
+```
+
 ## Usage
 
 Structured product integration:
@@ -95,7 +101,9 @@ Coordinate `click` and `drag` calls require a snapshot captured with
 Run the default test suite:
 
 ```bash
+swift package describe
 swift test --explicit-target-dependency-import-check error
+swift build -c release --explicit-target-dependency-import-check error
 ```
 
 The default tests avoid real GUI side effects. End-to-end GUI probe tests are

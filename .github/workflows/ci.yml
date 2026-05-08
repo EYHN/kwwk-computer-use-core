@@ -17,6 +17,9 @@ jobs:
       - name: Show Swift version
         run: swift --version
 
+      - name: Validate package manifest
+        run: swift package describe
+
       - name: Build and test
         run: swift test --explicit-target-dependency-import-check error
 
