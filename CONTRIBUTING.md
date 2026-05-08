@@ -8,11 +8,13 @@ from any agent framework, model provider, or application-specific adapter.
 Run the default test suite before submitting changes:
 
 ```bash
-swift test
+swift test --explicit-target-dependency-import-check error
 ```
 
-The default suite is designed to be safe on developer machines and CI. Tests
-that drive real GUI applications are gated behind an environment variable:
+This keeps the package honest about declared SwiftPM dependencies in addition
+to running the tests. The default suite is designed to be safe on developer
+machines and CI. Tests that drive real GUI applications are gated behind an
+environment variable:
 
 ```bash
 KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS=1 swift test --filter InProcessComputerUseBehaviorTests

@@ -95,7 +95,7 @@ Coordinate `click` and `drag` calls require a snapshot captured with
 Run the default test suite:
 
 ```bash
-swift test
+swift test --explicit-target-dependency-import-check error
 ```
 
 The default tests avoid real GUI side effects. End-to-end GUI probe tests are

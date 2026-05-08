@@ -18,4 +18,4 @@ jobs:
         run: swift --version
 
       - name: Build and test
-        run: swift test
+        run: swift test --explicit-target-dependency-import-check error
