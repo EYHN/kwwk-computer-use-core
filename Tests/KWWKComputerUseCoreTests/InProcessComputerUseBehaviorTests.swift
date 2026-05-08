@@ -771,8 +771,11 @@ private enum ProbeHarness {
         else {
             throw ComputerUseError.invalidArgument("missing AX frame")
         }
-        let position = rawPosition as! AXValue
-        let size = rawSize as! AXValue
+        guard let position = axValue(rawPosition),
+              let size = axValue(rawSize)
+        else {
+            throw ComputerUseError.invalidArgument("invalid AX frame")
+        }
         var point = CGPoint.zero
         var cgSize = CGSize.zero
         AXValueGetValue(position, .cgPoint, &point)
@@ -892,7 +895,9 @@ private enum ProbeHarness {
                     }
                 }
             } else {
-                let child = rawValue as! AXUIElement
+                guard let child = axElement(rawValue) else {
+                    continue
+                }
                 if let found = try? findElement(root: child, matches: matches) {
                     return found
                 }
@@ -907,6 +912,20 @@ private enum ProbeHarness {
             return nil
         }
         return value
+    }
+
+    private static func axValue(_ value: Any) -> AXValue? {
+        guard CFGetTypeID(value as CFTypeRef) == AXValueGetTypeID() else {
+            return nil
+        }
+        return (value as! AXValue)
+    }
+
+    private static func axElement(_ value: Any) -> AXUIElement? {
+        guard CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return (value as! AXUIElement)
     }
 
     private static func windowID(pid: pid_t) throws -> Int {

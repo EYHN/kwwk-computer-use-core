@@ -1491,9 +1491,7 @@ func stringifyValue(_ value: Any?) -> String {
     if let url = value as? URL {
         return url.absoluteString
     }
-    let cfObject = value as AnyObject
-    if CFGetTypeID(cfObject) == AXValueGetTypeID() {
-        let axValue = value as! AXValue
+    if let axValue = cuAXValue(from: value) {
         switch AXValueGetType(axValue) {
         case .cgPoint:
             var point = CGPoint.zero
@@ -1825,8 +1823,8 @@ func cuChildElements(_ element: AXUIElement) -> [AXUIElement] {
             continue
         }
 
-        if CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() {
-            append(value as! AXUIElement)
+        if let child = cuAXElement(from: value) {
+            append(child)
         } else if CFGetTypeID(value as CFTypeRef) == CFArrayGetTypeID(),
                   let children = value as? [AXUIElement]
         {
@@ -1839,14 +1837,28 @@ func cuChildElements(_ element: AXUIElement) -> [AXUIElement] {
 
 func cuElements(from value: Any?) -> [AXUIElement] {
     guard let value else { return [] }
-    if CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() {
-        return [value as! AXUIElement]
+    if let element = cuAXElement(from: value) {
+        return [element]
     }
     if CFGetTypeID(value as CFTypeRef) == CFArrayGetTypeID(),
        let children = value as? [AXUIElement] {
         return children
     }
     return []
+}
+
+private func cuAXValue(from value: Any) -> AXValue? {
+    guard CFGetTypeID(value as CFTypeRef) == AXValueGetTypeID() else {
+        return nil
+    }
+    return (value as! AXValue)
+}
+
+private func cuAXElement(from value: Any) -> AXUIElement? {
+    guard CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() else {
+        return nil
+    }
+    return (value as! AXUIElement)
 }
 
 func cuMenuChildren(_ element: AXUIElement) -> [AXUIElement] {
