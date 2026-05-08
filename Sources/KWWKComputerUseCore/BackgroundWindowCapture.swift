@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -27,12 +28,7 @@ enum BackgroundWindowCapture {
         windowID: Int,
         compression: ComputerUseScreenshotCompression = .foregroundDefault
     ) -> (url: URL, size: CGSize)? {
-        guard let image = CGWindowListCreateImage(
-            .null,
-            .optionIncludingWindow,
-            CGWindowID(windowID),
-            [.bestResolution, .boundsIgnoreFraming]
-        ) else {
+        guard let image = LegacyCGWindowCapture.captureWindowImage(windowID: windowID) else {
             return nil
         }
 
@@ -118,5 +114,37 @@ enum BackgroundWindowCapture {
         } catch {
             return nil
         }
+    }
+}
+
+private enum LegacyCGWindowCapture {
+    // Keep the legacy synchronous window capture backend behind dynamic lookup so
+    // builds do not directly reference the deprecated macOS 14 declaration.
+    private typealias CreateImageFn = @convention(c) (
+        CGRect,
+        UInt32,
+        CGWindowID,
+        UInt32
+    ) -> Unmanaged<CGImage>?
+
+    private static let createImage: CreateImageFn? = {
+        _ = dlopen(
+            "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics",
+            RTLD_LAZY
+        )
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else {
+            return nil
+        }
+        return unsafeBitCast(symbol, to: CreateImageFn.self)
+    }()
+
+    static func captureWindowImage(windowID: Int) -> CGImage? {
+        let imageOptions: CGWindowImageOption = [.bestResolution, .boundsIgnoreFraming]
+        return createImage?(
+            .null,
+            CGWindowListOption.optionIncludingWindow.rawValue,
+            CGWindowID(windowID),
+            imageOptions.rawValue
+        )?.takeRetainedValue()
     }
 }
