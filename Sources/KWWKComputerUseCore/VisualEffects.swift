@@ -1,4 +1,4 @@
-@preconcurrency import AppKit
+import CoreGraphics
 import Foundation
 
 public enum ComputerUseVisualEffectAction: String, Codable, Equatable, Sendable {
@@ -46,8 +46,7 @@ public protocol ComputerUseVisualEffectHook: AnyObject {
 
 public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, @unchecked Sendable {
     private let lock = NSLock()
-    private var glow = WindowGlowOverlay()
-    private var pointer = VirtualPointerOverlay()
+    private var borderOverlay: BorderOverlay?
 
     public init() {}
 
@@ -55,292 +54,136 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         _ event: ComputerUseVisualEffectEvent,
         action: () throws -> T
     ) throws -> T {
-        runOnMain {
-            self.glow.attach(toWindowID: event.windowID, fallbackAXFrame: event.windowFrame.cgRect)
-            self.pointer.animate(for: event)
-        }
+        try runOnMain {
+            self.ensureBorderOverlay().attach(toCGWindow: CGWindowID(event.windowID))
 
-        let result = try action()
-
-        runOnMain {
-            self.pointer.holdBriefly()
+            switch event.action {
+            case .drag:
+                return try self.runDrag(event, action: action)
+            case .click:
+                return try self.runAction(event, kind: .click(button: .left), action: action)
+            case .scroll:
+                return try self.runAction(event, kind: .scroll(direction: event.detail ?? ""), action: action)
+            case .accessibilityAction:
+                return try self.runAction(event, kind: .accessibilityAction, action: action)
+            case .keyboard, .targetWindow:
+                return try action()
+            }
         }
-        return result
     }
 
     public func finish() {
-        runOnMain {
-            self.pointer.tearDown()
-            self.glow.tearDown()
+        try? runOnMain {
+            self.borderOverlay?.detach()
+            self.borderOverlay = nil
+            DaemonCursor.shared.tearDown()
         }
     }
 
-    private func runOnMain(_ body: @MainActor @escaping () -> Void) {
-        lock.withLock {
+    private func ensureBorderOverlay() -> BorderOverlay {
+        if let borderOverlay {
+            return borderOverlay
+        }
+        let borderOverlay = BorderOverlay()
+        self.borderOverlay = borderOverlay
+        return borderOverlay
+    }
+
+    private func runAction<T>(
+        _ event: ComputerUseVisualEffectEvent,
+        kind: ActionOverlayKind,
+        action: () throws -> T
+    ) throws -> T {
+        var output: Result<T, Error>?
+        try DaemonCursor.shared.runApproachThenAction(
+            kind: kind,
+            target: target(for: event),
+            fallbackScreenPoint: screenPoint(for: event.startPoint, windowFrame: event.windowFrame.cgRect),
+            fallbackWindowFrame: event.windowFrame.cgRect,
+            tracking: tracking(for: event)
+        ) {
+            output = Result { try action() }
+        }
+        return try output?.get() ?? action()
+    }
+
+    private func runDrag<T>(
+        _ event: ComputerUseVisualEffectEvent,
+        action: () throws -> T
+    ) throws -> T {
+        let start = screenPoint(for: event.startPoint, windowFrame: event.windowFrame.cgRect)
+        let end = screenPoint(for: event.endPoint ?? event.startPoint, windowFrame: event.windowFrame.cgRect)
+        var output: Result<T, Error>?
+        try DaemonCursor.shared.runApproachThenDrag(
+            button: .left,
+            target: target(for: event),
+            startScreenPoint: start,
+            endScreenPoint: end,
+            fallbackWindowFrame: event.windowFrame.cgRect,
+            approachTracking: tracking(for: event),
+            onDragDown: {
+                output = Result { try action() }
+            },
+            onDragMove: { _, _ in },
+            onDragUp: { _ in }
+        )
+        return try output?.get() ?? action()
+    }
+
+    private func target(for event: ComputerUseVisualEffectEvent) -> CursorAnchor {
+        .window(number: event.windowID, layer: Int(CGWindowLevelForKey(.normalWindow)))
+    }
+
+    private func tracking(for event: ComputerUseVisualEffectEvent) -> ActionOverlayTracking {
+        windowLocalPointOverlayTracking(
+            target: target(for: event),
+            fallbackWindowFrame: event.windowFrame.cgRect
+        ) {
+            event.startPoint?.cgPoint ?? CGPoint(
+                x: event.windowFrame.cgRect.width / 2,
+                y: event.windowFrame.cgRect.height / 2
+            )
+        }
+    }
+
+    private func screenPoint(
+        for point: CGPointCodable?,
+        windowFrame: CGRect
+    ) -> CGPoint {
+        appKitScreenPoint(
+            fromWindowLocal: Point<WindowLocalSpace>(
+                point?.cgPoint ?? CGPoint(x: windowFrame.width / 2, y: windowFrame.height / 2)
+            ),
+            windowFrame: windowFrame
+        ).cgPoint
+    }
+
+    private func runOnMain<T>(_ body: () throws -> T) throws -> T {
+        try lock.withLock {
             if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    body()
-                }
+                return try body()
             } else {
-                DispatchQueue.main.sync {
-                    MainActor.assumeIsolated {
-                        body()
+                return try withoutActuallyEscaping(body) { escapable in
+                    let operation = MainSyncOperation(escapable)
+                    DispatchQueue.main.sync {
+                        operation.run()
                     }
+                    return try operation.result!.get()
                 }
             }
         }
     }
 }
 
-@MainActor
-private final class WindowGlowOverlay {
-    private var panel: NSPanel?
-    private var view: WindowGlowView?
+private final class MainSyncOperation<T>: @unchecked Sendable {
+    private let body: () throws -> T
+    var result: Result<T, Error>?
 
-    func attach(toWindowID windowID: Int, fallbackAXFrame: CGRect) {
-        ensurePanel()
-        guard let panel, let view else { return }
-
-        let axFrame = windowBounds(windowID: windowID) ?? fallbackAXFrame
-        let appKitFrame = appKitRect(fromAXRect: axFrame).insetBy(dx: -6, dy: -6)
-        view.cornerRadius = 14
-        panel.setFrame(appKitFrame, display: true)
-        panel.alphaValue = 1
-        panel.order(.above, relativeTo: windowID)
-        view.needsDisplay = true
+    init(_ body: @escaping () throws -> T) {
+        self.body = body
     }
 
-    func tearDown() {
-        panel?.orderOut(nil)
-        panel?.close()
-        panel = nil
-        view = nil
-    }
-
-    private func ensurePanel() {
-        guard panel == nil else { return }
-        let view = WindowGlowView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
-        let panel = NSPanel(
-            contentRect: view.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.contentView = view
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.ignoresMouseEvents = true
-        panel.hasShadow = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        self.panel = panel
-        self.view = view
-    }
-
-    private func windowBounds(windowID: Int) -> CGRect? {
-        guard let infos = CGWindowListCopyWindowInfo(
-            [.optionIncludingWindow],
-            CGWindowID(windowID)
-        ) as? [[String: Any]],
-            let info = infos.first,
-            let bounds = info[kCGWindowBounds as String] as? [String: Any],
-            let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary)
-        else {
-            return nil
-        }
-        return rect
-    }
-}
-
-@MainActor
-private final class WindowGlowView: NSView {
-    var cornerRadius: CGFloat = 14
-
-    override var isFlipped: Bool { false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        let rect = bounds.insetBy(dx: 8, dy: 8)
-        let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-        NSColor.systemTeal.withAlphaComponent(0.9).setStroke()
-        path.lineWidth = 3
-        path.stroke()
-
-        NSGraphicsContext.saveGraphicsState()
-        NSShadow().apply {
-            $0.shadowBlurRadius = 18
-            $0.shadowColor = NSColor.systemTeal.withAlphaComponent(0.45)
-            $0.shadowOffset = .zero
-        }
-        NSColor.systemTeal.withAlphaComponent(0.32).setStroke()
-        path.lineWidth = 5
-        path.stroke()
-        NSGraphicsContext.restoreGraphicsState()
-    }
-}
-
-@MainActor
-private final class VirtualPointerOverlay {
-    private var panel: NSPanel?
-    private var view: VirtualPointerView?
-    private var currentPoint: CGPoint?
-
-    func animate(for event: ComputerUseVisualEffectEvent) {
-        guard let destination = primaryPoint(for: event) else {
-            holdBriefly()
-            return
-        }
-        ensurePanel()
-        guard let panel else { return }
-
-        let start = currentPoint ?? CGPoint(
-            x: destination.x - 120,
-            y: destination.y + 80
-        )
-        let duration = event.action == .targetWindow ? 0.12 : 0.26
-        let steps = max(1, Int(duration / 0.012))
-        for step in 0 ... steps {
-            let t = CGFloat(step) / CGFloat(steps)
-            let eased = 1 - pow(1 - t, 3)
-            let point = CGPoint(
-                x: start.x + ((destination.x - start.x) * eased),
-                y: start.y + ((destination.y - start.y) * eased)
-            )
-            movePanel(panel, to: point)
-            pumpRunLoop(for: 0.012)
-        }
-
-        if let endPoint = event.endPoint?.cgPoint {
-            let endDestination = appKitScreenPoint(
-                fromWindowLocal: Point<WindowLocalSpace>(endPoint),
-                windowFrame: event.windowFrame.cgRect
-            ).cgPoint
-            animateLine(from: destination, to: endDestination, duration: 0.18)
-        }
-        currentPoint = event.endPoint.map {
-            appKitScreenPoint(
-                fromWindowLocal: Point<WindowLocalSpace>($0.cgPoint),
-                windowFrame: event.windowFrame.cgRect
-            ).cgPoint
-        } ?? destination
-    }
-
-    func holdBriefly() {
-        pumpRunLoop(for: 0.05)
-    }
-
-    func tearDown() {
-        panel?.orderOut(nil)
-        panel?.close()
-        panel = nil
-        view = nil
-        currentPoint = nil
-    }
-
-    private func ensurePanel() {
-        guard panel == nil else { return }
-        let view = VirtualPointerView(frame: CGRect(x: 0, y: 0, width: 34, height: 34))
-        let panel = NSPanel(
-            contentRect: view.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.contentView = view
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.ignoresMouseEvents = true
-        panel.hasShadow = false
-        panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        panel.orderFrontRegardless()
-        self.panel = panel
-        self.view = view
-    }
-
-    private func primaryPoint(for event: ComputerUseVisualEffectEvent) -> CGPoint? {
-        guard let point = event.startPoint?.cgPoint else {
-            return appKitRect(fromAXRect: event.windowFrame.cgRect).center
-        }
-        return appKitScreenPoint(
-            fromWindowLocal: Point<WindowLocalSpace>(point),
-            windowFrame: event.windowFrame.cgRect
-        ).cgPoint
-    }
-
-    private func animateLine(from start: CGPoint, to end: CGPoint, duration: TimeInterval) {
-        guard let panel else { return }
-        let steps = max(1, Int(duration / 0.012))
-        for step in 1 ... steps {
-            let t = CGFloat(step) / CGFloat(steps)
-            let point = CGPoint(
-                x: start.x + ((end.x - start.x) * t),
-                y: start.y + ((end.y - start.y) * t)
-            )
-            movePanel(panel, to: point)
-            pumpRunLoop(for: 0.012)
-        }
-    }
-
-    private func movePanel(_ panel: NSPanel, to point: CGPoint) {
-        let size = panel.frame.size
-        panel.setFrameOrigin(CGPoint(x: point.x - 3, y: point.y - size.height + 3))
-        panel.orderFrontRegardless()
-        view?.needsDisplay = true
-    }
-}
-
-private final class VirtualPointerView: NSView {
-    override var isFlipped: Bool { false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        let path = NSBezierPath()
-        path.move(to: CGPoint(x: 4, y: 30))
-        path.line(to: CGPoint(x: 4, y: 3))
-        path.line(to: CGPoint(x: 24, y: 21))
-        path.line(to: CGPoint(x: 14, y: 22))
-        path.line(to: CGPoint(x: 20, y: 33))
-        path.line(to: CGPoint(x: 15, y: 34))
-        path.line(to: CGPoint(x: 10, y: 23))
-        path.close()
-
-        NSColor.white.setFill()
-        path.fill()
-        NSColor.black.withAlphaComponent(0.8).setStroke()
-        path.lineWidth = 1.5
-        path.stroke()
-    }
-}
-
-private extension NSShadow {
-    func apply(_ configure: (NSShadow) -> Void) {
-        configure(self)
-        set()
-    }
-}
-
-private extension CGRect {
-    var center: CGPoint {
-        CGPoint(x: midX, y: midY)
-    }
-}
-
-private func appKitRect(fromAXRect rect: CGRect) -> CGRect {
-    let topLeft = appKitScreenPoint(from: Point<AXScreenSpace>(CGPoint(x: rect.minX, y: rect.minY))).cgPoint
-    let bottomRight = appKitScreenPoint(from: Point<AXScreenSpace>(CGPoint(x: rect.maxX, y: rect.maxY))).cgPoint
-    return CGRect(
-        x: topLeft.x,
-        y: bottomRight.y,
-        width: bottomRight.x - topLeft.x,
-        height: topLeft.y - bottomRight.y
-    )
-}
-
-private func pumpRunLoop(for duration: TimeInterval) {
-    let end = Date().addingTimeInterval(duration)
-    while Date() < end {
-        RunLoop.current.run(mode: .default, before: min(end, Date().addingTimeInterval(0.004)))
-        RunLoop.current.run(mode: .eventTracking, before: min(end, Date().addingTimeInterval(0.004)))
+    func run() {
+        result = Result { try body() }
     }
 }

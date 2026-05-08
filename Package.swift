@@ -12,7 +12,16 @@ let package = Package(
     targets: [
         .target(
             name: "KWWKComputerUseCore",
-            path: "Sources/KWWKComputerUseCore"
+            path: "Sources/KWWKComputerUseCore",
+            resources: [
+                .process("Resources"),
+            ],
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("ApplicationServices"),
+                .linkedFramework("Metal"),
+                .linkedFramework("QuartzCore"),
+            ]
         ),
         .testTarget(
             name: "KWWKComputerUseCoreTests",

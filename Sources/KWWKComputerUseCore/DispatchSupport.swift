@@ -20,7 +20,7 @@ enum UIElementError: Error, CustomStringConvertible {
     }
 }
 
-enum MouseButton: String, Sendable, Equatable {
+public enum MouseButton: String, Sendable, Equatable {
     case left
     case right
     case middle
@@ -43,5 +43,21 @@ func translatedWindowLocalPoint(
     windowLocalPoint(
         fromAppKitScreen: Point<AppKitScreenSpace>(point),
         windowFrame: windowFrame
+    ).cgPoint
+}
+
+public func overlayScreenPointForLocalPoint(
+    windowLocalPoint point: CGPoint,
+    windowFrame: CGRect
+) -> CGPoint {
+    appKitScreenPoint(
+        fromWindowLocal: Point<WindowLocalSpace>(point),
+        windowFrame: windowFrame
+    ).cgPoint
+}
+
+public func overlayScreenPointForAXFrame(_ frame: CGRect) -> CGPoint {
+    appKitScreenPoint(
+        from: Point<AXScreenSpace>(x: frame.midX, y: frame.midY)
     ).cgPoint
 }
