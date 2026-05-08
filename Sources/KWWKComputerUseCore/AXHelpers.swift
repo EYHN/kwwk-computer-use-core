@@ -99,6 +99,8 @@ func cuAXValue(from value: Any) -> AXValue? {
     guard CFGetTypeID(value as CFTypeRef) == AXValueGetTypeID() else {
         return nil
     }
+    // CoreFoundation casts between CF object types are not meaningfully conditional in Swift.
+    // The CFTypeID guard above is the runtime type check that makes this bridge safe.
     return (value as! AXValue)
 }
 
@@ -106,6 +108,8 @@ func cuAXElement(from value: Any) -> AXUIElement? {
     guard CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() else {
         return nil
     }
+    // CoreFoundation casts between CF object types are not meaningfully conditional in Swift.
+    // The CFTypeID guard above is the runtime type check that makes this bridge safe.
     return (value as! AXUIElement)
 }
 

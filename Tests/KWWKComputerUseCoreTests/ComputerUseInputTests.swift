@@ -66,6 +66,18 @@ struct ComputerUseInputTests {
         ) == window)
     }
 
+    @Test("AX type helpers accept only matching Core Foundation values")
+    func axTypeHelpersAcceptOnlyMatchingCoreFoundationValues() throws {
+        var point = CGPoint(x: 12, y: 34)
+        let axValue = try #require(AXValueCreate(.cgPoint, &point))
+        let appElement = AXUIElementCreateApplication(getpid())
+
+        #expect(cuAXValue(from: axValue) != nil)
+        #expect(cuAXElement(from: appElement) != nil)
+        #expect(cuAXValue(from: appElement) == nil)
+        #expect(cuAXElement(from: axValue) == nil)
+    }
+
     @Test("harness candidates use stable descriptions")
     func harnessCandidatesUseStableDescriptions() {
         let metadata = makeHarnessMetadata(
