@@ -23,7 +23,9 @@ public final class ComputerUseSession: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    private let actionLock = NSLock()
     private var activeTarget: ActiveTarget?
+    private var visualEffectHookStorage: ComputerUseVisualEffectHook?
     private var observationSequence = 0
     private var initialObservations: [ObservationKey: Observation] = [:]
     private var previousObservations: [ObservationKey: Observation] = [:]
@@ -32,37 +34,84 @@ public final class ComputerUseSession: @unchecked Sendable {
 
     public init() {}
 
+    public var visualEffectHook: ComputerUseVisualEffectHook? {
+        get {
+            lock.withLock { visualEffectHookStorage }
+        }
+        set {
+            lock.withLock { visualEffectHookStorage = newValue }
+        }
+    }
+
     deinit {
         finish()
     }
 
     public func finish() {
-        let target: ActiveTarget? = lock.withLock {
-            guard !finished else { return nil }
-            finished = true
-            let target = activeTarget
-            activeTarget = nil
-            return target
+        let result: (ActiveTarget?, ComputerUseVisualEffectHook?) = actionLock.withLock {
+            lock.withLock {
+                guard !finished else { return (nil, nil) }
+                finished = true
+                let target = activeTarget
+                let hook = visualEffectHookStorage
+                activeTarget = nil
+                visualEffectHookStorage = nil
+                return (target, hook)
+            }
         }
-        restoreAndFinish(target)
+        restoreAndFinish(result.0)
+        result.1?.finish()
+    }
+
+    func visualEffectEvent(
+        action: ComputerUseVisualEffectAction,
+        snapshot: RuntimeAppSnapshot,
+        startPoint: CGPoint? = nil,
+        endPoint: CGPoint? = nil,
+        detail: String? = nil
+    ) -> ComputerUseVisualEffectEvent {
+        ComputerUseVisualEffectEvent(
+            action: action,
+            windowID: snapshot.windowID,
+            windowFrame: CGRectCodable(snapshot.windowFrame),
+            startPoint: startPoint.map { CGPointCodable($0) },
+            endPoint: endPoint.map { CGPointCodable($0) },
+            detail: detail
+        )
+    }
+
+    func performWithBackgroundActivation<T>(
+        on snapshot: RuntimeAppSnapshot,
+        visualEffect event: ComputerUseVisualEffectEvent? = nil,
+        _ body: () throws -> T
+    ) throws -> T {
+        try actionLock.withLock {
+            let prepared: (ActiveTarget, ComputerUseVisualEffectHook?) = try lock.withLock {
+                guard !finished else {
+                    throw ComputerUseError.invalidArgument("computer use session is already finished")
+                }
+
+                let target = try activeTarget(matching: snapshot)
+                target.activation.beginTargetDelivery()
+                return (target, visualEffectHookStorage)
+            }
+
+            defer {
+                prepared.0.activation.holdFocusSuppressionUntilFinish()
+            }
+
+            if let event, let hook = prepared.1 {
+                return try hook.perform(event, action: body)
+            }
+            return try body()
+        }
     }
 
     func performWithBackgroundActivation<T>(
         on snapshot: RuntimeAppSnapshot,
         _ body: () throws -> T
     ) throws -> T {
-        try lock.withLock {
-            guard !finished else {
-                throw ComputerUseError.invalidArgument("computer use session is already finished")
-            }
-
-            let target = try activeTarget(matching: snapshot)
-            target.activation.beginTargetDelivery()
-            defer {
-                target.activation.holdFocusSuppressionUntilFinish()
-            }
-            return try body()
-        }
+        try performWithBackgroundActivation(on: snapshot, visualEffect: nil, body)
     }
 
     func recordAction(_ description: String) {

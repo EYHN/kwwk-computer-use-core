@@ -97,6 +97,25 @@ public struct CGRectCodable: Codable, Equatable, Sendable {
     }
 }
 
+public struct CGPointCodable: Codable, Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+
+    public init(_ point: CGPoint) {
+        x = point.x
+        y = point.y
+    }
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+
+    public var cgPoint: CGPoint {
+        CGPoint(x: x, y: y)
+    }
+}
+
 public struct CGSizeCodable: Codable, Equatable, Sendable {
     public var width: Double
     public var height: Double

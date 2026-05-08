@@ -166,4 +166,51 @@ struct PublicAPITests {
         #expect(error.errorDescription == error.description)
         #expect((error as NSError).localizedDescription == error.description)
     }
+
+    @Test("visual effect hook wraps actions and finishes with session")
+    func visualEffectHookWrapsActionsAndFinishesWithSession() throws {
+        let hook = RecordingVisualEffectHook()
+        let event = ComputerUseVisualEffectEvent(
+            action: .click,
+            windowID: 42,
+            windowFrame: CGRectCodable(x: 0, y: 0, width: 100, height: 80),
+            startPoint: CGPointCodable(x: 10, y: 12)
+        )
+        var actionDidRun = false
+
+        let result = try hook.perform(event) {
+            actionDidRun = hook.events == [.click]
+            return "done"
+        }
+        hook.finish()
+
+        #expect(result == "done")
+        #expect(actionDidRun)
+        #expect(hook.events == [.click])
+        #expect(hook.didFinish)
+
+        let session = ComputerUseSession()
+        session.visualEffectHook = hook
+        hook.didFinish = false
+        session.finish()
+        #expect(session.visualEffectHook == nil)
+        #expect(hook.didFinish)
+    }
+}
+
+private final class RecordingVisualEffectHook: ComputerUseVisualEffectHook {
+    var events: [ComputerUseVisualEffectAction] = []
+    var didFinish = false
+
+    func perform<T>(
+        _ event: ComputerUseVisualEffectEvent,
+        action: () throws -> T
+    ) throws -> T {
+        events.append(event.action)
+        return try action()
+    }
+
+    func finish() {
+        didFinish = true
+    }
 }

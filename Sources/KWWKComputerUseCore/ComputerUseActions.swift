@@ -91,22 +91,42 @@ public enum ComputerUseAction {
     ) async throws -> ComputerUseCommandOutput {
         let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
         let current = try ComputerUseCore.validateSnapshot(metadata)
-        return try session.performWithBackgroundActivation(on: current) {
-            if let elementIndex {
-                let node = try ComputerUseCore.resolveCachedElement(
-                    cachedIndex: elementIndex,
-                    metadata: metadata,
-                    fresh: current
-                )
+        let node = try elementIndex.map {
+            try ComputerUseCore.resolveCachedElement(
+                cachedIndex: $0,
+                metadata: metadata,
+                fresh: current
+            )
+        }
+        let point: CGPoint?
+        if let node {
+            point = try? localPoint(node: node, in: current)
+        } else if let x, let y {
+            try ComputerUseCore.ensureStableFrameForCoordinateAction(
+                metadata: metadata,
+                fresh: current
+            )
+            point = try screenshotPointToWindowLocal(
+                screenshotSize: metadata.screenshotSize,
+                windowFrame: current.windowFrame,
+                x: x,
+                y: y
+            )
+        } else {
+            point = nil
+        }
+        let event = session.visualEffectEvent(
+            action: point == nil ? .targetWindow : .click,
+            snapshot: current,
+            startPoint: point
+        )
+
+        return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
+            if let node {
                 if !performDefaultAXActionIfAvailable(on: node, in: current) {
-                    let point = try localPoint(node: node, in: current)
-                    try clickAtLocalPoint(point, in: current)
+                    try clickAtLocalPoint(try localPoint(node: node, in: current), in: current)
                 }
             } else if let x, let y {
-                try ComputerUseCore.ensureStableFrameForCoordinateAction(
-                    metadata: metadata,
-                    fresh: current
-                )
                 let point = try screenshotPointToWindowLocal(
                     screenshotSize: metadata.screenshotSize,
                     windowFrame: current.windowFrame,
@@ -136,7 +156,8 @@ public enum ComputerUseAction {
     ) async throws -> ComputerUseCommandOutput {
         let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
         let current = try ComputerUseCore.validateSnapshot(metadata)
-        return try session.performWithBackgroundActivation(on: current) {
+        let event = session.visualEffectEvent(action: .keyboard, snapshot: current)
+        return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
             let node = try editableNode(
                 in: current,
                 metadata: metadata,
@@ -185,7 +206,13 @@ public enum ComputerUseAction {
             throw ComputerUseError.elementNotSettable(elementIndex)
         }
 
-        return try session.performWithBackgroundActivation(on: current) {
+        let event = session.visualEffectEvent(
+            action: .accessibilityAction,
+            snapshot: current,
+            startPoint: try? localPoint(node: node, in: current),
+            detail: "setValue"
+        )
+        return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
             if cuIsAttributeSettable(node.element, name: kAXFocusedAttribute as String) {
                 _ = AXUIElementSetAttributeValue(
                     node.element,
@@ -220,7 +247,8 @@ public enum ComputerUseAction {
     ) async throws -> ComputerUseCommandOutput {
         let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
         let current = try ComputerUseCore.validateSnapshot(metadata)
-        return try session.performWithBackgroundActivation(on: current) {
+        let event = session.visualEffectEvent(action: .keyboard, snapshot: current, detail: key)
+        return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
             let dispatcher = BackgroundKeyboardDispatcher(
                 targetPID: current.app.processIdentifier,
                 windowNumber: current.windowID
@@ -251,8 +279,14 @@ public enum ComputerUseAction {
             metadata: metadata,
             fresh: current
         )
-        return try session.performWithBackgroundActivation(on: current) {
-            let point = try localPoint(node: node, in: current)
+        let point = try localPoint(node: node, in: current)
+        let event = session.visualEffectEvent(
+            action: .scroll,
+            snapshot: current,
+            startPoint: point,
+            detail: direction
+        )
+        return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
             let dispatcher = BackgroundMouseDispatcher(
                 targetPID: current.app.processIdentifier,
                 windowNumber: current.windowID,
@@ -306,7 +340,13 @@ public enum ComputerUseAction {
             fresh: current
         )
         let rawAction = try resolveSecondaryAction(node: node, requestedAction: action)
-        return try session.performWithBackgroundActivation(on: current) {
+        let event = session.visualEffectEvent(
+            action: .accessibilityAction,
+            snapshot: current,
+            startPoint: try? localPoint(node: node, in: current),
+            detail: rawAction
+        )
+        return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
             let result = AXUIElementPerformAction(node.element, rawAction as CFString)
             guard result == .success else {
                 throw UIElementError.axError(result, action: rawAction)
@@ -332,23 +372,30 @@ public enum ComputerUseAction {
     ) async throws -> ComputerUseCommandOutput {
         let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
         let current = try ComputerUseCore.validateSnapshot(metadata)
-        return try session.performWithBackgroundActivation(on: current) {
-            try ComputerUseCore.ensureStableFrameForCoordinateAction(
-                metadata: metadata,
-                fresh: current
-            )
-            let fromLocal = try screenshotPointToWindowLocal(
-                screenshotSize: metadata.screenshotSize,
-                windowFrame: current.windowFrame,
-                x: fromX,
-                y: fromY
-            )
-            let toLocal = try screenshotPointToWindowLocal(
-                screenshotSize: metadata.screenshotSize,
-                windowFrame: current.windowFrame,
-                x: toX,
-                y: toY
-            )
+        try ComputerUseCore.ensureStableFrameForCoordinateAction(
+            metadata: metadata,
+            fresh: current
+        )
+        let fromLocal = try screenshotPointToWindowLocal(
+            screenshotSize: metadata.screenshotSize,
+            windowFrame: current.windowFrame,
+            x: fromX,
+            y: fromY
+        )
+        let toLocal = try screenshotPointToWindowLocal(
+            screenshotSize: metadata.screenshotSize,
+            windowFrame: current.windowFrame,
+            x: toX,
+            y: toY
+        )
+        let event = session.visualEffectEvent(
+            action: .drag,
+            snapshot: current,
+            startPoint: fromLocal,
+            endPoint: toLocal
+        )
+
+        return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
 
             let dispatcher = BackgroundMouseDispatcher(
                 targetPID: current.app.processIdentifier,
