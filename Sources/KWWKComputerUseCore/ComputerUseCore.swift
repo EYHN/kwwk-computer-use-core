@@ -248,6 +248,89 @@ public struct ComputerUseWindowDescriptor: Equatable, Sendable {
     }
 }
 
+public struct ComputerUseState: Codable, Equatable, Sendable {
+    public var metadata: ComputerUseSnapshotMetadata
+    public var focusedElementIndex: Int?
+    public var selectedText: String?
+    public var nodes: [ComputerUseNode]
+
+    public init(
+        metadata: ComputerUseSnapshotMetadata,
+        focusedElementIndex: Int?,
+        selectedText: String?,
+        nodes: [ComputerUseNode]
+    ) {
+        self.metadata = metadata
+        self.focusedElementIndex = focusedElementIndex
+        self.selectedText = selectedText
+        self.nodes = nodes
+    }
+}
+
+public struct ComputerUseNode: Codable, Equatable, Sendable {
+    public var index: Int
+    public var parentIndex: Int?
+    public var depth: Int
+    public var role: String
+    public var subrole: String
+    public var title: String
+    public var description: String
+    public var value: String?
+    public var help: String
+    public var identifier: String
+    public var url: String?
+    public var enabled: Bool?
+    public var selected: Bool?
+    public var expanded: Bool?
+    public var focused: Bool?
+    public var frame: CGRectCodable?
+    public var actions: [String]
+    public var isValueSettable: Bool
+    public var valueTypeDescription: String?
+
+    public init(
+        index: Int,
+        parentIndex: Int?,
+        depth: Int,
+        role: String,
+        subrole: String,
+        title: String,
+        description: String,
+        value: String?,
+        help: String,
+        identifier: String,
+        url: String?,
+        enabled: Bool?,
+        selected: Bool?,
+        expanded: Bool?,
+        focused: Bool?,
+        frame: CGRectCodable?,
+        actions: [String],
+        isValueSettable: Bool,
+        valueTypeDescription: String?
+    ) {
+        self.index = index
+        self.parentIndex = parentIndex
+        self.depth = depth
+        self.role = role
+        self.subrole = subrole
+        self.title = title
+        self.description = description
+        self.value = value
+        self.help = help
+        self.identifier = identifier
+        self.url = url
+        self.enabled = enabled
+        self.selected = selected
+        self.expanded = expanded
+        self.focused = focused
+        self.frame = frame
+        self.actions = actions
+        self.isValueSettable = isValueSettable
+        self.valueTypeDescription = valueTypeDescription
+    }
+}
+
 public struct ComputerUseCommandOutput: Codable, Sendable {
     public var text: String
     public var metadata: ComputerUseSnapshotMetadata?
@@ -944,6 +1027,47 @@ enum ComputerUseCore {
     static func persistAndFormat(snapshot: RuntimeAppSnapshot) throws -> ComputerUseCommandOutput {
         let metadata = try ComputerUseSnapshotStore.save(snapshot: snapshot)
         return formattedState(snapshot: snapshot, metadata: metadata)
+    }
+
+    static func persistAndBuildState(snapshot: RuntimeAppSnapshot) throws -> ComputerUseState {
+        let metadata = try ComputerUseSnapshotStore.save(snapshot: snapshot)
+        return structuredState(snapshot: snapshot, metadata: metadata)
+    }
+
+    static func structuredState(
+        snapshot: RuntimeAppSnapshot,
+        metadata: ComputerUseSnapshotMetadata
+    ) -> ComputerUseState {
+        let parents = parentIndicesFromDepths(snapshot.nodes.map(\.depth))
+        let nodes = snapshot.nodes.enumerated().map { i, node in
+            ComputerUseNode(
+                index: node.index,
+                parentIndex: parents[i],
+                depth: node.depth,
+                role: node.role,
+                subrole: node.subrole,
+                title: node.title,
+                description: node.description,
+                value: stringValueOrNil(node.value),
+                help: node.help,
+                identifier: node.identifier,
+                url: node.url?.absoluteString,
+                enabled: node.enabled,
+                selected: node.selected,
+                expanded: node.expanded,
+                focused: node.focused,
+                frame: node.frame.map(CGRectCodable.init),
+                actions: node.actions,
+                isValueSettable: node.isValueSettable,
+                valueTypeDescription: node.valueTypeDescription
+            )
+        }
+        return ComputerUseState(
+            metadata: metadata,
+            focusedElementIndex: snapshot.focusedElementIndex,
+            selectedText: snapshot.selectedText,
+            nodes: nodes
+        )
     }
 
     static func formattedState(
@@ -1960,6 +2084,11 @@ func stringifyValue(_ value: Any?) -> String {
         }
     }
     return String(describing: value)
+}
+
+func stringValueOrNil(_ value: Any?) -> String? {
+    let valueString = stringifyValue(value)
+    return valueString.isEmpty ? nil : valueString
 }
 
 func describeValueType(_ value: Any?) -> String? {

@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -147,6 +148,51 @@ struct ComputerUseInputTests {
 
         #expect(resolveFreshElementIndex(cachedIndex: 3, cached: cached, fresh: fresh) == 3)
     }
+
+    @Test("structured state preserves node tree and action fields")
+    func structuredStatePreservesNodeTreeAndActionFields() {
+        let windowFrame = CGRect(x: 100, y: 120, width: 500, height: 400)
+        let nodes = [
+            runtimeNode(index: 0, depth: 0, role: kAXWindowRole as String, title: "Main"),
+            runtimeNode(
+                index: 1,
+                depth: 1,
+                role: kAXButtonRole as String,
+                title: "Run",
+                value: "ready",
+                frame: CGRect(x: 140, y: 180, width: 80, height: 30),
+                actions: [kAXPressAction as String]
+            ),
+            runtimeNode(index: 2, depth: 1, role: kAXStaticTextRole as String, title: "Status"),
+        ]
+        let metadata = makeHarnessMetadata(
+            id: "snapshot-structured",
+            signatures: nodeSignatures(for: nodes)
+        )
+        let snapshot = RuntimeAppSnapshot(
+            app: NSRunningApplication.current,
+            appElement: AXUIElementCreateSystemWide(),
+            windowElement: AXUIElementCreateSystemWide(),
+            windowID: metadata.windowID,
+            windowTitle: metadata.windowTitle,
+            windowFrame: windowFrame,
+            nodes: nodes,
+            focusedElementIndex: 1,
+            selectedText: "ready",
+            screenshotURL: nil,
+            screenshotSize: nil,
+            fingerprint: metadata.fingerprint
+        )
+
+        let state = ComputerUseCore.structuredState(snapshot: snapshot, metadata: metadata)
+
+        #expect(state.focusedElementIndex == 1)
+        #expect(state.selectedText == "ready")
+        #expect(state.nodes.map(\.parentIndex) == [nil, 0, 0])
+        #expect(state.nodes[1].value == "ready")
+        #expect(state.nodes[1].frame == CGRectCodable(x: 140, y: 180, width: 80, height: 30))
+        #expect(state.nodes[1].actions == [kAXPressAction as String])
+    }
 }
 
 private func makeHarnessMetadata(
@@ -191,7 +237,10 @@ private func runtimeNode(
     index: Int,
     depth: Int,
     role: String,
-    title: String = ""
+    title: String = "",
+    value: Any? = nil,
+    frame: CGRect? = nil,
+    actions: [String] = []
 ) -> RuntimeAXNode {
     RuntimeAXNode(
         index: index,
@@ -201,7 +250,7 @@ private func runtimeNode(
         subrole: "",
         title: title,
         description: "",
-        value: nil,
+        value: value,
         help: "",
         identifier: "",
         url: nil,
@@ -209,8 +258,8 @@ private func runtimeNode(
         selected: nil,
         expanded: nil,
         focused: nil,
-        frame: nil,
-        actions: [],
+        frame: frame,
+        actions: actions,
         isValueSettable: false,
         valueTypeDescription: nil
     )

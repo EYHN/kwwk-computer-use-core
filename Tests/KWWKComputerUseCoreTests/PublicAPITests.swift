@@ -54,6 +54,33 @@ struct PublicAPITests {
             title: "Main",
             isMain: true
         )
+        let node = ComputerUseNode(
+            index: 0,
+            parentIndex: nil,
+            depth: 0,
+            role: "AXWindow",
+            subrole: "",
+            title: "Main",
+            description: "",
+            value: nil,
+            help: "",
+            identifier: "main-window",
+            url: nil,
+            enabled: true,
+            selected: nil,
+            expanded: nil,
+            focused: true,
+            frame: frame,
+            actions: ["AXPress"],
+            isValueSettable: false,
+            valueTypeDescription: nil
+        )
+        let state = ComputerUseState(
+            metadata: metadata,
+            focusedElementIndex: 0,
+            selectedText: nil,
+            nodes: [node]
+        )
 
         #expect(metadata.nodeSignatures == [signature])
         #expect(metadata.windowFrame == frame)
@@ -61,6 +88,7 @@ struct PublicAPITests {
         #expect(app.isRunning)
         #expect(!runningApp.isActive)
         #expect(window.isMain)
+        #expect(state.nodes == [node])
     }
 
     @Test("client exposes structured app queries")

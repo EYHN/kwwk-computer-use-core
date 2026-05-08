@@ -57,6 +57,19 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
+    public func state(
+        app appIdentifier: String,
+        windowTitle: String? = nil,
+        includeScreenshot: Bool = false
+    ) throws -> ComputerUseState {
+        try ComputerUseAction.getStructuredAppState(
+            appIdentifier: appIdentifier,
+            windowTitle: windowTitle,
+            includeScreenshot: includeScreenshot,
+            screenshotCompression: screenshotCompression
+        )
+    }
+
     public func click(
         snapshotID: String,
         elementIndex: Int,

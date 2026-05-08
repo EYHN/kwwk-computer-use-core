@@ -41,6 +41,37 @@ public enum ComputerUseAction {
         }
     }
 
+    public static func getStructuredAppState(
+        appIdentifier: String,
+        windowTitle: String?,
+        includeScreenshot: Bool,
+        screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
+    ) throws -> ComputerUseState {
+        do {
+            let snapshot = try ComputerUseCore.captureSnapshot(
+                appIdentifier: appIdentifier,
+                selection: WindowSelection(titleSubstring: windowTitle),
+                includeScreenshot: includeScreenshot,
+                screenshotCompression: screenshotCompression
+            )
+            return try ComputerUseCore.persistAndBuildState(snapshot: snapshot)
+        } catch let error as ComputerUseError {
+            guard case .windowNotFound = error,
+                  let windowTitle,
+                  windowTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            else {
+                throw error
+            }
+
+            let snapshot = try ComputerUseCore.captureSnapshot(
+                appIdentifier: appIdentifier,
+                includeScreenshot: includeScreenshot,
+                screenshotCompression: screenshotCompression
+            )
+            return try ComputerUseCore.persistAndBuildState(snapshot: snapshot)
+        }
+    }
+
     public static func listApps() -> ComputerUseCommandOutput {
         let lines = ComputerUseCore.listApps().map(ComputerUseCore.formatAppListLine)
         return ComputerUseCommandOutput(text: lines.joined(separator: "\n"))

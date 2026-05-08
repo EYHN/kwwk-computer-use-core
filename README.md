@@ -54,6 +54,7 @@ cu.finish()
 - `listWindows(app:)`
 - `windows(app:)`
 - `getAppState(app:windowTitle:includeScreenshot:)`
+- `state(app:windowTitle:includeScreenshot:)`
 - `click(snapshotID:elementIndex:)`
 - `click(snapshotID:x:y:)`
 - `typeText(snapshotID:text:elementIndex:)`
@@ -64,8 +65,9 @@ cu.finish()
 - `drag(snapshotID:fromX:fromY:toX:toY:)`
 
 The calling process needs macOS Accessibility permission for most actions.
-Use `apps()`, `runningApps()`, and `windows(app:)` when integrating from product
-code that needs structured values instead of agent-facing formatted text.
+Use `apps()`, `runningApps()`, `windows(app:)`, and `state(app:)` when
+integrating from product code that needs structured values instead of
+agent-facing formatted text.
 
 ## Testing
 
