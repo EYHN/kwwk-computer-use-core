@@ -1,11 +1,33 @@
 # MacComputerUse
 
+[![CI](https://github.com/EYHN/kwwk-computer-use-core/actions/workflows/ci.yml/badge.svg)](https://github.com/EYHN/kwwk-computer-use-core/actions/workflows/ci.yml)
+
 Swift macOS computer-use runtime for driving native apps through Accessibility
 snapshots and background input delivery.
 
 This package contains only the core runtime: action functions, snapshot/session
 management, background mouse/keyboard dispatch, screenshot capture, and app/window
 discovery. It intentionally does not depend on kwwk, agent frameworks, or AI SDKs.
+
+## Requirements
+
+- macOS 14 or newer.
+- Swift 6.1 or newer.
+- Accessibility permission for the calling process.
+
+## Installation
+
+Add the package to `Package.swift`:
+
+```swift
+.package(url: "https://github.com/EYHN/kwwk-computer-use-core.git", branch: "main")
+```
+
+Then add `MacComputerUse` to your target dependencies:
+
+```swift
+.product(name: "MacComputerUse", package: "kwwk-computer-use-core")
+```
 
 ## Usage
 
@@ -39,3 +61,37 @@ cu.finish()
 - `drag(snapshotID:fromX:fromY:toX:toY:)`
 
 The calling process needs macOS Accessibility permission for most actions.
+
+## Testing
+
+Run the default test suite:
+
+```bash
+swift test
+```
+
+The default tests avoid real GUI side effects. End-to-end GUI probe tests are
+available for local development:
+
+```bash
+MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS=1 swift test --filter InProcessComputerUseBehaviorTests
+```
+
+Those tests require Accessibility permission and prebuilt probe apps under
+`/private/tmp/kwwk-activation-probe`.
+
+## Architecture
+
+`ComputerUseClient` is the product-facing facade. It owns a
+`ComputerUseSession`, so a sequence of actions can share background activation
+and focus suppression state.
+
+Lower-level callers can use `ComputerUseAction` directly when they need to
+manage sessions themselves. The library intentionally returns
+`ComputerUseCommandOutput` with both formatted text and structured metadata so
+agent adapters can choose their own schema without coupling the core package to
+any one framework.
+
+## License
+
+MIT
