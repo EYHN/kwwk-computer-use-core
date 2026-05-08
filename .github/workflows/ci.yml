@@ -19,3 +19,6 @@ jobs:
 
       - name: Build and test
         run: swift test --explicit-target-dependency-import-check error
+
+      - name: Build release
+        run: swift build -c release --explicit-target-dependency-import-check error
