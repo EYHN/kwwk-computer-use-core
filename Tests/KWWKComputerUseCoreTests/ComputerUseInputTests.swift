@@ -2,7 +2,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 import Testing
-@testable import MacComputerUse
+@testable import KWWKComputerUseCore
 
 @Suite("Computer use input")
 struct ComputerUseInputTests {

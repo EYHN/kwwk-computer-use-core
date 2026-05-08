@@ -1,6 +1,6 @@
 import CoreGraphics
 import Testing
-@testable import MacComputerUse
+@testable import KWWKComputerUseCore
 
 @Suite("Computer use coordinate accuracy")
 struct CoordinateAccuracyTests {

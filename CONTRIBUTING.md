@@ -1,6 +1,6 @@
 # Contributing
 
-MacComputerUse is a macOS-only Swift package. Keep the core library independent
+KWWKComputerUseCore is a macOS-only Swift package. Keep the core library independent
 from any agent framework, model provider, or application-specific adapter.
 
 ## Development
@@ -15,7 +15,7 @@ The default suite is designed to be safe on developer machines and CI. Tests
 that drive real GUI applications are gated behind an environment variable:
 
 ```bash
-MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS=1 swift test --filter InProcessComputerUseBehaviorTests
+KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS=1 swift test --filter InProcessComputerUseBehaviorTests
 ```
 
 GUI probe tests require:
@@ -26,7 +26,7 @@ GUI probe tests require:
 
 ## Design Guidelines
 
-- Keep `Sources/MacComputerUse` free of kwwk, agent, and AI SDK dependencies.
+- Keep `Sources/KWWKComputerUseCore` free of kwwk, agent, and AI SDK dependencies.
 - Prefer public APIs that are usable directly from product code.
 - Preserve the snapshot/session model: actions should validate against fresh
   state before acting.

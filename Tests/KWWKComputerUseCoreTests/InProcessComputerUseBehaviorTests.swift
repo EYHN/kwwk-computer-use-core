@@ -4,7 +4,7 @@ import Carbon
 import CoreGraphics
 import Foundation
 import Testing
-@testable import MacComputerUse
+@testable import KWWKComputerUseCore
 
 private enum JSONValue {
     case string(String)
@@ -148,7 +148,7 @@ private func testSetFrontProcessWithOptions(_ psn: UnsafePointer<ProcessSerialNu
 struct InProcessComputerUseBehaviorTests {
     @Test("direct product actions preserve background focus invariants")
     func directProductActionsPreserveBackgroundFocusInvariants() async throws {
-        guard ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS"] == "1" else {
+        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
             return
         }
         guard AXIsProcessTrusted() else {
@@ -172,7 +172,7 @@ struct InProcessComputerUseBehaviorTests {
 
     @Test("coordinate clicks land at requested Probe window locations")
     func coordinateClicksLandAtRequestedProbeWindowLocations() async throws {
-        guard ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS"] == "1" else {
+        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
             return
         }
         guard AXIsProcessTrusted() else {
@@ -201,7 +201,7 @@ struct InProcessComputerUseBehaviorTests {
 
     @Test("Probe global menu bar click returns menu AX tree")
     func probeGlobalMenuBarClickReturnsMenuAXTree() async throws {
-        guard ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS"] == "1" else {
+        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
             return
         }
         guard AXIsProcessTrusted() else {
@@ -221,7 +221,7 @@ struct InProcessComputerUseBehaviorTests {
 
     @Test("Probe background global menu item can be picked")
     func probeBackgroundGlobalMenuItemCanBePicked() async throws {
-        guard ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS"] == "1" else {
+        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
             return
         }
         guard AXIsProcessTrusted() else {
@@ -241,7 +241,7 @@ struct InProcessComputerUseBehaviorTests {
 
     @Test("Probe window menu button click returns menu AX tree")
     func probeWindowMenuButtonClickReturnsMenuAXTree() async throws {
-        guard ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS"] == "1" else {
+        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
             return
         }
         guard AXIsProcessTrusted() else {

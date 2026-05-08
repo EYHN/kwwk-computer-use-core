@@ -237,7 +237,7 @@ struct ComputerUseSnapshotFile: Codable {
 enum ComputerUseSnapshotStore {
     static var rootURL: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(
-            "mac-computer-use",
+            "kwwk-computer-use-core",
             isDirectory: true
         )
     }
@@ -1477,7 +1477,7 @@ enum ComputerUseCore {
             }
             let selfDescribingStructuralNode = roleCanContainVisibleDescendants(role) &&
                 (!title.isEmpty || !description.isEmpty)
-            let visibleFilteringDisabled = ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_DISABLE_VISIBLE_FILTER"] == "1"
+            let visibleFilteringDisabled = ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_DISABLE_VISIBLE_FILTER"] == "1"
             if filterVisibleNodes,
                !visibleFilteringDisabled,
                depth > 0,
@@ -1595,16 +1595,16 @@ enum ComputerUseCore {
 
 private enum ComputerUseActionSettleTiming {
     static var timeout: TimeInterval {
-        milliseconds(from: "MAC_COMPUTER_USE_ACTION_SETTLE_TIMEOUT_MS", fallback: 1600)
+        milliseconds(from: "KWWK_COMPUTER_USE_CORE_ACTION_SETTLE_TIMEOUT_MS", fallback: 1600)
     }
 
     static var pollInterval: TimeInterval {
-        milliseconds(from: "MAC_COMPUTER_USE_ACTION_SETTLE_POLL_MS", fallback: 120)
+        milliseconds(from: "KWWK_COMPUTER_USE_CORE_ACTION_SETTLE_POLL_MS", fallback: 120)
     }
 
     static var requiredStablePasses: Int {
         guard
-            let raw = ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_ACTION_SETTLE_STABLE_PASSES"],
+            let raw = ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_ACTION_SETTLE_STABLE_PASSES"],
             let value = Int(raw)
         else {
             return 3
@@ -1730,7 +1730,7 @@ enum ComputerUseStateFormatter {
             details.append("URL: \(url.absoluteString)")
         }
 
-        if ProcessInfo.processInfo.environment["MAC_COMPUTER_USE_INCLUDE_FRAMES"] == "1",
+        if ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_INCLUDE_FRAMES"] == "1",
            let frame = node.frame
         {
             details.append("Frame: \(stableRectString(frame))")

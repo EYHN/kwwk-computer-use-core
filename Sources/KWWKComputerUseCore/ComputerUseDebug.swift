@@ -3,7 +3,7 @@ import Foundation
 public enum ComputerUseDebug {
     private final class State: @unchecked Sendable {
         let lock = NSLock()
-        var focusEnabled = environmentBool("MAC_COMPUTER_USE_DEBUG_FOCUS")
+        var focusEnabled = environmentBool("KWWK_COMPUTER_USE_CORE_DEBUG_FOCUS")
     }
 
     private static let state = State()

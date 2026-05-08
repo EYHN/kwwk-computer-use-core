@@ -37,7 +37,7 @@ enum BackgroundWindowCapture {
         }
 
         let scaled = scaleToLimits(image, compression: compression)
-        return writeJPEG(scaled, prefix: "mac-computer-use-capture", quality: compression.jpegQuality).map {
+        return writeJPEG(scaled, prefix: "kwwk-computer-use-core-capture", quality: compression.jpegQuality).map {
             (url: $0, size: CGSize(width: scaled.width, height: scaled.height))
         }
     }

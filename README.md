@@ -1,4 +1,4 @@
-# MacComputerUse
+# KWWKComputerUseCore
 
 [![CI](https://github.com/EYHN/kwwk-computer-use-core/actions/workflows/ci.yml/badge.svg)](https://github.com/EYHN/kwwk-computer-use-core/actions/workflows/ci.yml)
 
@@ -23,16 +23,16 @@ Add the package to `Package.swift`:
 .package(url: "https://github.com/EYHN/kwwk-computer-use-core.git", branch: "main")
 ```
 
-Then add `MacComputerUse` to your target dependencies:
+Then add `KWWKComputerUseCore` to your target dependencies:
 
 ```swift
-.product(name: "MacComputerUse", package: "kwwk-computer-use-core")
+.product(name: "KWWKComputerUseCore", package: "kwwk-computer-use-core")
 ```
 
 ## Usage
 
 ```swift
-import MacComputerUse
+import KWWKComputerUseCore
 
 let cu = ComputerUseClient()
 
@@ -74,7 +74,7 @@ The default tests avoid real GUI side effects. End-to-end GUI probe tests are
 available for local development:
 
 ```bash
-MAC_COMPUTER_USE_RUN_GUI_PROBE_TESTS=1 swift test --filter InProcessComputerUseBehaviorTests
+KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS=1 swift test --filter InProcessComputerUseBehaviorTests
 ```
 
 Those tests require Accessibility permission and prebuilt probe apps under

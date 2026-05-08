@@ -2,28 +2,28 @@
 import PackageDescription
 
 let package = Package(
-    name: "mac-computer-use",
+    name: "kwwk-computer-use-core",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .library(name: "MacComputerUse", targets: ["MacComputerUse"]),
+        .library(name: "KWWKComputerUseCore", targets: ["KWWKComputerUseCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
     targets: [
         .target(
-            name: "MacComputerUse",
+            name: "KWWKComputerUseCore",
             dependencies: [
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
-            path: "Sources/MacComputerUse"
+            path: "Sources/KWWKComputerUseCore"
         ),
         .testTarget(
-            name: "MacComputerUseTests",
-            dependencies: ["MacComputerUse"],
-            path: "Tests/MacComputerUseTests"
+            name: "KWWKComputerUseCoreTests",
+            dependencies: ["KWWKComputerUseCore"],
+            path: "Tests/KWWKComputerUseCoreTests"
         ),
     ],
     swiftLanguageModes: [.v6]
