@@ -13,6 +13,7 @@ import Foundation
 ///   boundary when building the plan and once when mapping samples back
 ///   onto the AppKit screen.
 
+@MainActor
 public final class DaemonCursor: @unchecked Sendable {
     public static let shared = DaemonCursor()
 

@@ -125,6 +125,14 @@ func cuChildElementsForWalk(_ element: AXUIElement, role: String) -> [AXUIElemen
     if role == (kAXMenuRole as String) {
         return cuMenuChildren(element)
     }
+    if role == (kAXTableRole as String) ||
+        role == (kAXOutlineRole as String) ||
+        role == (kAXListRole as String) {
+        let visibleRows = cuElements(from: cuRawAttribute(element, name: "AXVisibleRows"))
+        if visibleRows.isEmpty == false {
+            return visibleRows
+        }
+    }
     if role == (kAXMenuBarRole as String) {
         return cuChildElements(element).filter { child in
             let childRole = cuAttribute(child, name: kAXRoleAttribute as String) as String? ?? ""
@@ -132,6 +140,31 @@ func cuChildElementsForWalk(_ element: AXUIElement, role: String) -> [AXUIElemen
         }
     }
     return cuChildElements(element)
+}
+
+func cuCollectionSummary(_ element: AXUIElement, role: String) -> String? {
+    guard role == (kAXTableRole as String) ||
+        role == (kAXOutlineRole as String) ||
+        role == (kAXListRole as String) else {
+        return nil
+    }
+
+    let rows = cuElements(from: cuRawAttribute(element, name: kAXRowsAttribute as String))
+    let visibleRows = cuElements(from: cuRawAttribute(element, name: "AXVisibleRows"))
+    guard rows.isEmpty == false,
+          visibleRows.isEmpty == false else {
+        return nil
+    }
+
+    let visibleIndices = visibleRows.compactMap { visible in
+        rows.firstIndex { row in CFEqual(row, visible) }
+    }
+    guard let first = visibleIndices.min(),
+          let last = visibleIndices.max() else {
+        return "showing \(visibleRows.count) of \(rows.count) items"
+    }
+
+    return "showing \(first + 1)-\(last + 1) of \(rows.count) items"
 }
 
 func cuShouldSkipChildWalk(role: String, element: AXUIElement) -> Bool {

@@ -205,6 +205,40 @@ struct ComputerUseInputTests {
         #expect(state.nodes[1].frame == CGRectCodable(x: 140, y: 180, width: 80, height: 30))
         #expect(state.nodes[1].actions == [kAXPressAction as String])
     }
+
+    @Test("formatted state truncates large values")
+    func formattedStateTruncatesLargeValues() {
+        let longValue = String(repeating: "terminal output line\n", count: 400)
+        let metadata = makeHarnessMetadata(
+            id: "snapshot-large-value",
+            signatures: [
+                signature(role: kAXWindowRole as String, title: "Main"),
+                signature(role: kAXTextAreaRole as String, title: "Terminal"),
+            ]
+        )
+        let snapshot = RuntimeAppSnapshot(
+            app: NSRunningApplication.current,
+            appElement: AXUIElementCreateSystemWide(),
+            windowElement: AXUIElementCreateSystemWide(),
+            windowID: metadata.windowID,
+            windowTitle: metadata.windowTitle,
+            windowFrame: CGRect(x: 0, y: 0, width: 400, height: 300),
+            nodes: [
+                runtimeNode(index: 0, depth: 0, role: kAXWindowRole as String, title: "Main"),
+                runtimeNode(index: 1, depth: 1, role: kAXTextAreaRole as String, value: longValue),
+            ],
+            focusedElementIndex: 1,
+            selectedText: longValue,
+            screenshotURL: nil,
+            screenshotSize: nil,
+            fingerprint: metadata.fingerprint
+        )
+
+        let output = ComputerUseStateFormatter.format(snapshot: snapshot)
+
+        #expect(output.contains("[truncated"))
+        #expect(output.count < 4_000)
+    }
 }
 
 private func makeHarnessMetadata(
@@ -273,6 +307,7 @@ private func runtimeNode(
         frame: frame,
         actions: actions,
         isValueSettable: false,
-        valueTypeDescription: nil
+        valueTypeDescription: nil,
+        collectionSummary: nil
     )
 }
