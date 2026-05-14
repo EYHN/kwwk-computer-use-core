@@ -54,20 +54,23 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         _ event: ComputerUseVisualEffectEvent,
         action: () throws -> T
     ) throws -> T {
-        try runOnMain {
-            self.ensureBorderOverlay().attach(toCGWindow: CGWindowID(event.windowID))
+        try withoutActuallyEscaping(action) { escapableAction in
+            let actionBox = VisualEffectActionBox(escapableAction)
+            return try runOnMain {
+                self.ensureBorderOverlay().attach(toCGWindow: CGWindowID(event.windowID))
 
-            switch event.action {
-            case .drag:
-                return try self.runDrag(event, action: action)
-            case .click:
-                return try self.runAction(event, kind: .click(button: .left), action: action)
-            case .scroll:
-                return try self.runAction(event, kind: .scroll(direction: event.detail ?? ""), action: action)
-            case .accessibilityAction:
-                return try self.runAction(event, kind: .accessibilityAction, action: action)
-            case .keyboard, .targetWindow:
-                return try action()
+                switch event.action {
+                case .drag:
+                    return try self.runDrag(event, action: actionBox)
+                case .click:
+                    return try self.runAction(event, kind: .click(button: .left), action: actionBox)
+                case .scroll:
+                    return try self.runAction(event, kind: .scroll(direction: event.detail ?? ""), action: actionBox)
+                case .accessibilityAction:
+                    return try self.runAction(event, kind: .accessibilityAction, action: actionBox)
+                case .keyboard, .targetWindow:
+                    return try actionBox.call()
+                }
             }
         }
     }
@@ -80,6 +83,7 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         }
     }
 
+    @MainActor
     private func ensureBorderOverlay() -> BorderOverlay {
         if let borderOverlay {
             return borderOverlay
@@ -89,10 +93,11 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         return borderOverlay
     }
 
+    @MainActor
     private func runAction<T>(
         _ event: ComputerUseVisualEffectEvent,
         kind: ActionOverlayKind,
-        action: () throws -> T
+        action: VisualEffectActionBox<T>
     ) throws -> T {
         var output: Result<T, Error>?
         try DaemonCursor.shared.runApproachThenAction(
@@ -102,14 +107,15 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
             fallbackWindowFrame: event.windowFrame.cgRect,
             tracking: tracking(for: event)
         ) {
-            output = Result { try action() }
+            output = Result { try action.call() }
         }
-        return try output?.get() ?? action()
+        return try output?.get() ?? action.call()
     }
 
+    @MainActor
     private func runDrag<T>(
         _ event: ComputerUseVisualEffectEvent,
-        action: () throws -> T
+        action: VisualEffectActionBox<T>
     ) throws -> T {
         let start = screenPoint(for: event.startPoint, windowFrame: event.windowFrame.cgRect)
         let end = screenPoint(for: event.endPoint ?? event.startPoint, windowFrame: event.windowFrame.cgRect)
@@ -122,18 +128,20 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
             fallbackWindowFrame: event.windowFrame.cgRect,
             approachTracking: tracking(for: event),
             onDragDown: {
-                output = Result { try action() }
+                output = Result { try action.call() }
             },
             onDragMove: { _, _ in },
             onDragUp: { _ in }
         )
-        return try output?.get() ?? action()
+        return try output?.get() ?? action.call()
     }
 
+    @MainActor
     private func target(for event: ComputerUseVisualEffectEvent) -> CursorAnchor {
         .window(number: event.windowID, layer: Int(CGWindowLevelForKey(.normalWindow)))
     }
 
+    @MainActor
     private func tracking(for event: ComputerUseVisualEffectEvent) -> ActionOverlayTracking {
         windowLocalPointOverlayTracking(
             target: target(for: event),
@@ -146,6 +154,7 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         }
     }
 
+    @MainActor
     private func screenPoint(
         for point: CGPointCodable?,
         windowFrame: CGRect
@@ -158,12 +167,13 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         ).cgPoint
     }
 
-    private func runOnMain<T>(_ body: () throws -> T) throws -> T {
+    private func runOnMain<T>(_ body: @MainActor () throws -> T) throws -> T {
         try lock.withLock {
-            if Thread.isMainThread {
-                return try body()
-            } else {
-                return try withoutActuallyEscaping(body) { escapable in
+            try withoutActuallyEscaping(body) { escapable in
+                if Thread.isMainThread {
+                    let unchecked = unsafeBitCast(escapable, to: (() throws -> T).self)
+                    return try unchecked()
+                } else {
                     let operation = MainSyncOperation(escapable)
                     DispatchQueue.main.sync {
                         operation.run()
@@ -176,14 +186,27 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
 }
 
 private final class MainSyncOperation<T>: @unchecked Sendable {
-    private let body: () throws -> T
+    private let body: @MainActor () throws -> T
     var result: Result<T, Error>?
 
-    init(_ body: @escaping () throws -> T) {
+    init(_ body: @escaping @MainActor () throws -> T) {
         self.body = body
     }
 
     func run() {
-        result = Result { try body() }
+        let unchecked = unsafeBitCast(body, to: (() throws -> T).self)
+        result = Result { try unchecked() }
+    }
+}
+
+private final class VisualEffectActionBox<T>: @unchecked Sendable {
+    private let action: () throws -> T
+
+    init(_ action: @escaping () throws -> T) {
+        self.action = action
+    }
+
+    func call() throws -> T {
+        try action()
     }
 }

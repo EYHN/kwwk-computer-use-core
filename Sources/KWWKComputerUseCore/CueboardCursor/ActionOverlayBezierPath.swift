@@ -73,9 +73,9 @@ struct ActionOverlayBezierPlanner {
     static let `default` = ActionOverlayBezierPlanner(
         turnRate: 2.0,
         bulgeMax: 0.45,
-        speed: 300,
-        durationMin: 0.26,
-        durationMax: 1.8
+        speed: 600,
+        durationMin: 0.13,
+        durationMax: 0.9
     )
 
     // MARK: - Public API

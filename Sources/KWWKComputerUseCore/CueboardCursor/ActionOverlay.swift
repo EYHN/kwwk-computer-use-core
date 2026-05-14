@@ -71,6 +71,7 @@ public struct ActionOverlayTracking: @unchecked Sendable {
 
 public enum ActionOverlayRuntime {
 
+    @MainActor
     public static func prepareAppKit() -> Bool {
         guard Thread.isMainThread else {
             return false
@@ -81,6 +82,7 @@ public enum ActionOverlayRuntime {
         return true
     }
 
+    @MainActor
     public static func pump(for duration: TimeInterval) {
         guard duration > 0 else {
             return
@@ -96,25 +98,25 @@ public enum ActionOverlayRuntime {
 
 public enum ActionOverlayTiming {
     public static var bootstrapHold: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_BOOTSTRAP_MS", fallback: 20)
+        milliseconds(from: "CUNEXT_OVERLAY_BOOTSTRAP_MS", fallback: 10)
     }
 
     public static var updateHold: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_UPDATE_MS", fallback: 8)
+        milliseconds(from: "CUNEXT_OVERLAY_UPDATE_MS", fallback: 4)
     }
 
     public static var preActionHold: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_PRE_MS", fallback: 40)
+        milliseconds(from: "CUNEXT_OVERLAY_PRE_MS", fallback: 20)
     }
 
     /// Dwell at the target after the approach settles so the user sees the
     /// cursor "land" before it changes into pressed/dragging state.
     public static var postApproachDwell: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_DWELL_MS", fallback: 180)
+        milliseconds(from: "CUNEXT_OVERLAY_DWELL_MS", fallback: 90)
     }
 
     public static var finalHold: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_HOLD_MS", fallback: 80)
+        milliseconds(from: "CUNEXT_OVERLAY_HOLD_MS", fallback: 40)
     }
 
     public static var trackingInterval: TimeInterval {
@@ -122,7 +124,7 @@ public enum ActionOverlayTiming {
     }
 
     public static var approachDuration: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_APPROACH_MS", fallback: 460)
+        milliseconds(from: "CUNEXT_OVERLAY_APPROACH_MS", fallback: 230)
     }
 
     public static var approachStep: TimeInterval {
@@ -130,11 +132,11 @@ public enum ActionOverlayTiming {
     }
 
     public static var approachSettleTimeout: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_APPROACH_SETTLE_MS", fallback: 900)
+        milliseconds(from: "CUNEXT_OVERLAY_APPROACH_SETTLE_MS", fallback: 450)
     }
 
     public static var dragDuration: TimeInterval {
-        milliseconds(from: "CUNEXT_OVERLAY_DRAG_MS", fallback: 300)
+        milliseconds(from: "CUNEXT_OVERLAY_DRAG_MS", fallback: 150)
     }
 
     public static var dragStep: TimeInterval {

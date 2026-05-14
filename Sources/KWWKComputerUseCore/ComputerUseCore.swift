@@ -32,6 +32,7 @@ struct RuntimeAXNode {
     let actions: [String]
     let isValueSettable: Bool
     let valueTypeDescription: String?
+    let collectionSummary: String?
 }
 
 struct RuntimeAppSnapshot {
@@ -118,7 +119,7 @@ enum ComputerUseCore {
         selection: WindowSelection = .init(),
         includeScreenshot: Bool,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault,
-        filterVisibleNodes: Bool = false
+        filterVisibleNodes: Bool = true
     ) throws -> RuntimeAppSnapshot {
         guard AXIsProcessTrusted() else {
             throw ComputerUseError.accessibilityPermissionDenied
@@ -138,7 +139,7 @@ enum ComputerUseCore {
         metadata: ComputerUseSnapshotMetadata,
         includeScreenshot: Bool,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault,
-        filterVisibleNodes: Bool = false
+        filterVisibleNodes: Bool = true
     ) throws -> RuntimeAppSnapshot {
         guard AXIsProcessTrusted() else {
             throw ComputerUseError.accessibilityPermissionDenied
@@ -270,7 +271,7 @@ enum ComputerUseCore {
         afterActionOn snapshot: RuntimeAppSnapshot,
         includeScreenshot: Bool,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault,
-        filterVisibleNodes: Bool = false
+        filterVisibleNodes: Bool = true
     ) throws -> RuntimeAppSnapshot {
         guard AXIsProcessTrusted() else {
             throw ComputerUseError.accessibilityPermissionDenied
@@ -340,7 +341,7 @@ enum ComputerUseCore {
         screenshotCompression: ComputerUseScreenshotCompression,
         preferredWindowID: Int? = nil,
         preferredWindowFrame: CGRect? = nil,
-        filterVisibleNodes: Bool = false
+        filterVisibleNodes: Bool = true
     ) throws -> RuntimeAppSnapshot {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         ChromiumAccessibilityActivation.shared.activateIfNeeded(
@@ -498,7 +499,8 @@ enum ComputerUseCore {
                 frame: node.frame,
                 actions: node.actions,
                 isValueSettable: node.isValueSettable,
-                valueTypeDescription: node.valueTypeDescription
+                valueTypeDescription: node.valueTypeDescription,
+                collectionSummary: node.collectionSummary
             )
         }
     }
@@ -528,6 +530,7 @@ enum ComputerUseCore {
             let actions: [String]
             let isValueSettable: Bool
             let valueTypeDescription: String?
+            let collectionSummary: String?
             let children: [PendingNode]
         }
 
@@ -557,6 +560,7 @@ enum ComputerUseCore {
             }
 
             let rawChildren = cuChildElementsForWalk(element, role: role)
+            let collectionSummary = cuCollectionSummary(element, role: role)
             let childVisibleClip = filterVisibleNodes
                 ? cuDescendantVisibleClip(role: role, frame: frame, inheritedClip: visibleClip)
                 : visibleClip
@@ -602,6 +606,7 @@ enum ComputerUseCore {
                 actions: cuActions(element),
                 isValueSettable: cuIsAttributeSettable(element, name: kAXValueAttribute as String),
                 valueTypeDescription: describeValueType(value),
+                collectionSummary: collectionSummary,
                 children: children
             )
         }
@@ -632,7 +637,8 @@ enum ComputerUseCore {
                 frame: pending.frame,
                 actions: pending.actions,
                 isValueSettable: pending.isValueSettable,
-                valueTypeDescription: pending.valueTypeDescription
+                valueTypeDescription: pending.valueTypeDescription,
+                collectionSummary: pending.collectionSummary
             ))
             for child in pending.children {
                 emit(child, depth: depth + 1)

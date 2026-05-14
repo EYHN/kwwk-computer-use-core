@@ -12,6 +12,7 @@ private let borderLogger = Logger(
 /// or display. Both modes (foreground via `WindowManager`'s active window,
 /// background per-action target) share this single implementation.
 
+@MainActor
 public final class BorderOverlay {
     private let window: ColorfulBorderWindow
     private var appearance: BorderAppearance

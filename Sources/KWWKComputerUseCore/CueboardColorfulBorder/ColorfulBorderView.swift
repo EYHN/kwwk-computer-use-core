@@ -7,6 +7,7 @@ private let metalLogger = Logger(
     subsystem: "app.afk.cueboard.BridgeComputerUse",
     category: "ColorfulBorderMetal"
 )
+private let colorfulBorderMinimumBorderAlpha = 0.4
 
 final class ColorfulBorderView: NSView {
     enum RenderMode: Equatable {
@@ -32,7 +33,6 @@ final class ColorfulBorderView: NSView {
     private static let noiseMinimumAlpha = 0.03
     private static let noiseIdleValue = 0.5
     private static let minimumNoiseStrength = 0.3
-    fileprivate static let minimumBorderAlpha = 0.4
     private static let idleColorMotionAmplitude = 0.18
     private static let noiseAnimationAmount = 0.6
     private static let noiseAnimationSpeed = 0.4
@@ -639,7 +639,7 @@ private final class ColorfulBorderShaderRenderer {
         float halo = exp(-max(borderDistance - coreWidth, 0.0) / glowRadius);
         float core = 1.0 - smoothstep(0.0, coreWidth, borderDistance);
         float baseGlow = max(core, halo * 0.95);
-        float alphaMask = max(noiseMask, \(ColorfulBorderView.minimumBorderAlpha));
+        float alphaMask = max(noiseMask, \(colorfulBorderMinimumBorderAlpha));
         float finalAlpha = clamp(baseGlow * alphaMask, 0.0, 1.0);
 
         if (finalAlpha < 0.001) {
