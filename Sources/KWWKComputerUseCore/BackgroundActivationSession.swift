@@ -194,14 +194,8 @@ final class BackgroundActivationSession: @unchecked Sendable {
         }
     }
 
-    private func isFocusMessage(type: CGEventType, event: CGEvent) -> Bool {
-        if type.rawValue == 13 || type.rawValue == 19 || type.rawValue == 20 {
-            return true
-        }
-        guard let nsEvent = NSEvent(cgEvent: event) else {
-            return false
-        }
-        return nsEvent.type.rawValue == 13
+    private func isFocusMessage(type: CGEventType, event _: CGEvent) -> Bool {
+        type.rawValue == 13 || type.rawValue == 19 || type.rawValue == 20
     }
 }
 
@@ -215,9 +209,9 @@ private let backgroundActivationEventTapCallback: CGEventTapCallBack = { _, type
         .takeUnretainedValue()
 
     if context.session.shouldDrop(kind: context.kind, type: type, event: event) {
-        if FocusDebug.isEnabled, let nsEvent = NSEvent(cgEvent: event) {
+        if FocusDebug.isEnabled {
             FocusDebug.log(
-                "drop focus event kind=\(context.kind.rawValue) raw=\(type.rawValue) ns=\(nsEvent.type.rawValue) subtype=\(nsEvent.subtype.rawValue)"
+                "drop focus event kind=\(context.kind.rawValue) raw=\(type.rawValue)"
             )
         }
         return nil
