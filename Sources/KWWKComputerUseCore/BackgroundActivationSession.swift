@@ -85,7 +85,6 @@ final class BackgroundActivationSession: @unchecked Sendable {
         event.setWindowAddressingFields(windowNumber: windowNumber)
         event.postToPid(targetPID)
         usleep(20_000)
-        postTitlebarPrimer(windowNumber: windowNumber, windowFrame: windowFrame)
     }
 
     func restoreBackgroundActivationIfNeeded(windowNumber: Int) {
@@ -115,38 +114,6 @@ final class BackgroundActivationSession: @unchecked Sendable {
             data2: 0
         )?.cgEvent
         guard let event else { return }
-        event.setWindowAddressingFields(windowNumber: windowNumber)
-        event.postToPid(targetPID)
-    }
-
-    private func postTitlebarPrimer(windowNumber: Int, windowFrame: CGRect) {
-        let point = CGPoint(
-            x: windowFrame.minX + min(30, max(1, windowFrame.width / 2)),
-            y: windowFrame.minY + min(16, max(1, windowFrame.height / 2))
-        )
-        postMouse(.leftMouseDown, windowNumber: windowNumber, point: point, clickState: 1, pressure: 1)
-        usleep(30_000)
-        postMouse(.leftMouseUp, windowNumber: windowNumber, point: point, clickState: 1, pressure: 0)
-        usleep(20_000)
-    }
-
-    private func postMouse(
-        _ type: CGEventType,
-        windowNumber: Int,
-        point: CGPoint,
-        clickState: Int64,
-        pressure: Double
-    ) {
-        guard let event = CGEvent(
-            mouseEventSource: nil,
-            mouseType: type,
-            mouseCursorPosition: point,
-            mouseButton: .left
-        ) else {
-            return
-        }
-        event.setIntegerValueField(.mouseEventClickState, value: clickState)
-        event.setDoubleValueField(.mouseEventPressure, value: pressure)
         event.setWindowAddressingFields(windowNumber: windowNumber)
         event.postToPid(targetPID)
     }
