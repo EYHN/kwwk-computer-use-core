@@ -56,22 +56,23 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
     ) throws -> T {
         try withoutActuallyEscaping(action) { escapableAction in
             let actionBox = VisualEffectActionBox(escapableAction)
-            return try runOnMain {
+            try runOnMain {
                 self.ensureBorderOverlay().attach(toCGWindow: CGWindowID(event.windowID))
 
                 switch event.action {
                 case .drag:
-                    return try self.runDrag(event, action: actionBox)
+                    try self.runDrag(event)
                 case .click:
-                    return try self.runAction(event, kind: .click(button: .left), action: actionBox)
+                    try self.runAction(event, kind: .click(button: .left))
                 case .scroll:
-                    return try self.runAction(event, kind: .scroll(direction: event.detail ?? ""), action: actionBox)
+                    try self.runAction(event, kind: .scroll(direction: event.detail ?? ""))
                 case .accessibilityAction:
-                    return try self.runAction(event, kind: .accessibilityAction, action: actionBox)
+                    try self.runAction(event, kind: .accessibilityAction)
                 case .keyboard, .targetWindow:
-                    return try actionBox.call()
+                    break
                 }
             }
+            return try actionBox.call()
         }
     }
 
@@ -94,12 +95,10 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
     }
 
     @MainActor
-    private func runAction<T>(
+    private func runAction(
         _ event: ComputerUseVisualEffectEvent,
-        kind: ActionOverlayKind,
-        action: VisualEffectActionBox<T>
-    ) throws -> T {
-        var output: Result<T, Error>?
+        kind: ActionOverlayKind
+    ) throws {
         try DaemonCursor.shared.runApproachThenAction(
             kind: kind,
             target: target(for: event),
@@ -107,19 +106,16 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
             fallbackWindowFrame: event.windowFrame.cgRect,
             tracking: tracking(for: event)
         ) {
-            output = Result { try action.call() }
+            // The actual computer-use action runs after this method returns, on
+            // the caller's background executor. Keep the main thread dedicated
+            // to the visual cursor animation.
         }
-        return try output?.get() ?? action.call()
     }
 
     @MainActor
-    private func runDrag<T>(
-        _ event: ComputerUseVisualEffectEvent,
-        action: VisualEffectActionBox<T>
-    ) throws -> T {
+    private func runDrag(_ event: ComputerUseVisualEffectEvent) throws {
         let start = screenPoint(for: event.startPoint, windowFrame: event.windowFrame.cgRect)
         let end = screenPoint(for: event.endPoint ?? event.startPoint, windowFrame: event.windowFrame.cgRect)
-        var output: Result<T, Error>?
         try DaemonCursor.shared.runApproachThenDrag(
             button: .left,
             target: target(for: event),
@@ -128,12 +124,12 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
             fallbackWindowFrame: event.windowFrame.cgRect,
             approachTracking: tracking(for: event),
             onDragDown: {
-                output = Result { try action.call() }
+                // The real drag runs after this visual pass on the background
+                // executor, so UI animation never pulls AX/CG work onto main.
             },
             onDragMove: { _, _ in },
             onDragUp: { _ in }
         )
-        return try output?.get() ?? action.call()
     }
 
     @MainActor
