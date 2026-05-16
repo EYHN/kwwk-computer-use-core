@@ -22,16 +22,18 @@ private enum ComputerUseTestHarness {
     ) async throws -> ComputerUseCommandOutput {
         switch action {
         case "get-app-state":
-            return try ComputerUseAction.getAppState(
-                appIdentifier: try requiredString(args, "app"),
-                windowTitle: optionalString(args, "window_title"),
-                includeScreenshot: optionalBool(args, "include_screenshot") ?? false,
-                screenshotCompression: screenshotCompression
-            )
+            return try await withSession(session) { session in
+                try ComputerUseAction.getAppState(
+                    appIdentifier: try requiredString(args, "app"),
+                    windowTitle: optionalString(args, "window_title"),
+                    includeScreenshot: optionalBool(args, "include_screenshot") ?? false,
+                    session: session,
+                    screenshotCompression: screenshotCompression
+                )
+            }
         case "click":
             return try await withSession(session) { session in
                 try await ComputerUseAction.click(
-                    snapshotID: try requiredString(args, "snapshot_id"),
                     elementIndex: optionalInt(args, "element_index"),
                     x: optionalDouble(args, "x"),
                     y: optionalDouble(args, "y"),
@@ -43,7 +45,6 @@ private enum ComputerUseTestHarness {
         case "type-text":
             return try await withSession(session) { session in
                 try await ComputerUseAction.typeText(
-                    snapshotID: try requiredString(args, "snapshot_id"),
                     text: try requiredString(args, "text"),
                     elementIndex: optionalInt(args, "element_index"),
                     includeScreenshotAfter: optionalBool(args, "include_screenshot_after") ?? false,
@@ -54,7 +55,6 @@ private enum ComputerUseTestHarness {
         case "set-value":
             return try await withSession(session) { session in
                 try await ComputerUseAction.setValue(
-                    snapshotID: try requiredString(args, "snapshot_id"),
                     elementIndex: try requiredInt(args, "element_index"),
                     value: try requiredString(args, "value"),
                     includeScreenshotAfter: optionalBool(args, "include_screenshot_after") ?? false,
@@ -65,7 +65,6 @@ private enum ComputerUseTestHarness {
         case "press-key":
             return try await withSession(session) { session in
                 try await ComputerUseAction.pressKey(
-                    snapshotID: try requiredString(args, "snapshot_id"),
                     key: try requiredString(args, "key"),
                     includeScreenshotAfter: optionalBool(args, "include_screenshot_after") ?? false,
                     session: session,
@@ -75,7 +74,6 @@ private enum ComputerUseTestHarness {
         case "perform-secondary-action":
             return try await withSession(session) { session in
                 try await ComputerUseAction.performSecondaryAction(
-                    snapshotID: try requiredString(args, "snapshot_id"),
                     elementIndex: try requiredInt(args, "element_index"),
                     action: try requiredString(args, "action"),
                     includeScreenshotAfter: optionalBool(args, "include_screenshot_after") ?? false,
@@ -270,7 +268,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(try #require(snapshot.metadata?.id)),
                 "element_index": .int(buttonIndex),
                 "include_screenshot_after": .bool(false),
             ],
@@ -307,7 +304,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(metadata.id),
                 "x": .double(coordinate.x),
                 "y": .double(coordinate.y),
                 "include_screenshot_after": .bool(false),
@@ -335,7 +331,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "type-text",
             args: [
-                "snapshot_id": .string(try #require(snapshot.metadata?.id)),
                 "element_index": .int(inputIndex),
                 "text": .string("ip"),
                 "include_screenshot_after": .bool(false),
@@ -368,7 +363,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "set-value",
             args: [
-                "snapshot_id": .string(try #require(snapshot.metadata?.id)),
                 "element_index": .int(inputIndex),
                 "value": .string("ax"),
                 "include_screenshot_after": .bool(false),
@@ -377,11 +371,10 @@ struct InProcessComputerUseBehaviorTests {
             session: session
         )
 
-        let postSetSnapshot = try await getProbeBState(includeScreenshot: false)
+        _ = try await getProbeBState(includeScreenshot: false)
         _ = try await ComputerUseTestHarness.executeAction(
             action: "perform-secondary-action",
             args: [
-                "snapshot_id": .string(try #require(postSetSnapshot.metadata?.id)),
                 "element_index": .int(buttonIndex),
                 "action": .string("Press"),
                 "include_screenshot_after": .bool(false),
@@ -423,7 +416,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(metadata.id),
                 "x": .double(coordinate.x),
                 "y": .double(coordinate.y),
                 "include_screenshot_after": .bool(false),
@@ -454,7 +446,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(try #require(probeBSnapshot.metadata?.id)),
                 "element_index": .int(probeBButton),
                 "include_screenshot_after": .bool(false),
             ],
@@ -474,7 +465,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(try #require(probeCSnapshot.metadata?.id)),
                 "element_index": .int(probeCButton),
                 "include_screenshot_after": .bool(false),
             ],
@@ -509,7 +499,6 @@ struct InProcessComputerUseBehaviorTests {
         let output = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(try #require(snapshot.metadata?.id)),
                 "element_index": .int(appMenuIndex),
                 "include_screenshot_after": .bool(false),
             ],
@@ -522,11 +511,10 @@ struct InProcessComputerUseBehaviorTests {
         #expect(output.text.contains("ProbeB Probe About"))
         #expect(output.text.contains("The focused UI element") == false || output.text.contains("menu"))
 
-        if let metadata = output.metadata {
+        if output.metadata != nil {
             _ = try? await ComputerUseTestHarness.executeAction(
                 action: "press-key",
                 args: [
-                    "snapshot_id": .string(metadata.id),
                     "key": .string("Escape"),
                     "include_screenshot_after": .bool(false),
                 ],
@@ -552,7 +540,6 @@ struct InProcessComputerUseBehaviorTests {
         let menuOutput = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(try #require(snapshot.metadata?.id)),
                 "element_index": .int(toolsMenuIndex),
                 "include_screenshot_after": .bool(false),
             ],
@@ -565,7 +552,6 @@ struct InProcessComputerUseBehaviorTests {
         _ = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(try #require(menuOutput.metadata?.id)),
                 "element_index": .int(toolOneIndex),
                 "include_screenshot_after": .bool(false),
             ],
@@ -592,7 +578,6 @@ struct InProcessComputerUseBehaviorTests {
         let output = try await ComputerUseTestHarness.executeAction(
             action: "click",
             args: [
-                "snapshot_id": .string(try #require(snapshot.metadata?.id)),
                 "element_index": .int(menuButtonIndex),
                 "include_screenshot_after": .bool(false),
             ],
@@ -604,11 +589,10 @@ struct InProcessComputerUseBehaviorTests {
         #expect(output.text.contains("First Choice"))
         #expect(output.text.contains("Second Choice"))
 
-        if let metadata = output.metadata {
+        if output.metadata != nil {
             _ = try? await ComputerUseTestHarness.executeAction(
                 action: "press-key",
                 args: [
-                    "snapshot_id": .string(metadata.id),
                     "key": .string("Escape"),
                     "include_screenshot_after": .bool(false),
                 ],

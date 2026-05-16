@@ -6,6 +6,7 @@ public enum ComputerUseAction {
         appIdentifier: String,
         windowTitle: String?,
         includeScreenshot: Bool,
+        session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) throws -> ComputerUseCommandOutput {
         let result = try captureSnapshotWithWindowFallback(
@@ -15,6 +16,7 @@ public enum ComputerUseAction {
             screenshotCompression: screenshotCompression
         )
         let output = try ComputerUseCore.persistAndFormat(snapshot: result.snapshot)
+        session.recordSnapshot(output.metadata)
         guard result.usedWindowFallback, let windowTitle else {
             return output
         }
@@ -33,6 +35,7 @@ public enum ComputerUseAction {
         appIdentifier: String,
         windowTitle: String?,
         includeScreenshot: Bool,
+        session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) throws -> ComputerUseState {
         let result = try captureSnapshotWithWindowFallback(
@@ -41,7 +44,9 @@ public enum ComputerUseAction {
             includeScreenshot: includeScreenshot,
             screenshotCompression: screenshotCompression
         )
-        return try ComputerUseCore.persistAndBuildState(snapshot: result.snapshot)
+        let state = try ComputerUseCore.persistAndBuildState(snapshot: result.snapshot)
+        session.recordSnapshot(state.metadata)
+        return state
     }
 
     public static func listApps() -> ComputerUseCommandOutput {
@@ -81,7 +86,6 @@ public enum ComputerUseAction {
     }
 
     public static func click(
-        snapshotID: String,
         elementIndex: Int?,
         x: Double?,
         y: Double?,
@@ -89,7 +93,7 @@ public enum ComputerUseAction {
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) async throws -> ComputerUseCommandOutput {
-        let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
+        let metadata = try session.requireLatestSnapshot(action: "click")
         let current = try ComputerUseCore.validateSnapshot(metadata)
         let node = try elementIndex.map {
             try ComputerUseCore.resolveCachedElement(
@@ -141,20 +145,20 @@ public enum ComputerUseAction {
             return try settledOutput(
                 afterActionOn: current,
                 includeScreenshot: includeScreenshotAfter,
+                session: session,
                 screenshotCompression: screenshotCompression
             )
         }
     }
 
     public static func typeText(
-        snapshotID: String,
         text: String,
         elementIndex: Int?,
         includeScreenshotAfter: Bool,
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) async throws -> ComputerUseCommandOutput {
-        let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
+        let metadata = try session.requireLatestSnapshot(action: "type-text")
         let current = try ComputerUseCore.validateSnapshot(metadata)
         let event = session.visualEffectEvent(action: .keyboard, snapshot: current)
         return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
@@ -181,20 +185,20 @@ public enum ComputerUseAction {
             return try settledOutput(
                 afterActionOn: current,
                 includeScreenshot: includeScreenshotAfter,
+                session: session,
                 screenshotCompression: screenshotCompression
             )
         }
     }
 
     public static func setValue(
-        snapshotID: String,
         elementIndex: Int,
         value: String,
         includeScreenshotAfter: Bool,
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) async throws -> ComputerUseCommandOutput {
-        let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
+        let metadata = try session.requireLatestSnapshot(action: "set-value")
         let current = try ComputerUseCore.validateSnapshot(metadata)
         let node = try ComputerUseCore.resolveCachedElement(
             cachedIndex: elementIndex,
@@ -233,19 +237,19 @@ public enum ComputerUseAction {
             return try settledOutput(
                 afterActionOn: current,
                 includeScreenshot: includeScreenshotAfter,
+                session: session,
                 screenshotCompression: screenshotCompression
             )
         }
     }
 
     public static func pressKey(
-        snapshotID: String,
         key: String,
         includeScreenshotAfter: Bool,
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) async throws -> ComputerUseCommandOutput {
-        let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
+        let metadata = try session.requireLatestSnapshot(action: "press-key")
         let current = try ComputerUseCore.validateSnapshot(metadata)
         let event = session.visualEffectEvent(action: .keyboard, snapshot: current, detail: key)
         return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
@@ -258,13 +262,13 @@ public enum ComputerUseAction {
             return try settledOutput(
                 afterActionOn: current,
                 includeScreenshot: includeScreenshotAfter,
+                session: session,
                 screenshotCompression: screenshotCompression
             )
         }
     }
 
     public static func scroll(
-        snapshotID: String,
         elementIndex: Int,
         direction: String,
         pages: Double,
@@ -272,7 +276,7 @@ public enum ComputerUseAction {
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) async throws -> ComputerUseCommandOutput {
-        let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
+        let metadata = try session.requireLatestSnapshot(action: "scroll")
         let current = try ComputerUseCore.validateSnapshot(metadata)
         let node = try ComputerUseCore.resolveCachedElement(
             cachedIndex: elementIndex,
@@ -306,6 +310,7 @@ public enum ComputerUseAction {
             let output = try settledOutput(
                 afterActionOn: current,
                 includeScreenshot: includeScreenshotAfter,
+                session: session,
                 screenshotCompression: screenshotCompression
             )
             guard output.metadata?.fingerprint == current.fingerprint else {
@@ -325,14 +330,13 @@ public enum ComputerUseAction {
     }
 
     public static func performSecondaryAction(
-        snapshotID: String,
         elementIndex: Int,
         action: String,
         includeScreenshotAfter: Bool,
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) async throws -> ComputerUseCommandOutput {
-        let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
+        let metadata = try session.requireLatestSnapshot(action: "perform-secondary-action")
         let current = try ComputerUseCore.validateSnapshot(metadata)
         let node = try ComputerUseCore.resolveCachedElement(
             cachedIndex: elementIndex,
@@ -355,13 +359,13 @@ public enum ComputerUseAction {
             return try settledOutput(
                 afterActionOn: current,
                 includeScreenshot: includeScreenshotAfter,
+                session: session,
                 screenshotCompression: screenshotCompression
             )
         }
     }
 
     public static func drag(
-        snapshotID: String,
         fromX: Double,
         fromY: Double,
         toX: Double,
@@ -370,7 +374,7 @@ public enum ComputerUseAction {
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) async throws -> ComputerUseCommandOutput {
-        let metadata = try ComputerUseSnapshotStore.load(snapshotID: snapshotID)
+        let metadata = try session.requireLatestSnapshot(action: "drag")
         let current = try ComputerUseCore.validateSnapshot(metadata)
         try ComputerUseCore.ensureStableFrameForCoordinateAction(
             metadata: metadata,
@@ -420,6 +424,7 @@ public enum ComputerUseAction {
             return try settledOutput(
                 afterActionOn: current,
                 includeScreenshot: includeScreenshotAfter,
+                session: session,
                 screenshotCompression: screenshotCompression
             )
         }

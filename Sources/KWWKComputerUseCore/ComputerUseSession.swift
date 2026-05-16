@@ -30,6 +30,7 @@ public final class ComputerUseSession: @unchecked Sendable {
     private var initialObservations: [ObservationKey: Observation] = [:]
     private var previousObservations: [ObservationKey: Observation] = [:]
     private var recentActions: [String] = []
+    private var latestSnapshotMetadata: ComputerUseSnapshotMetadata?
     private var finished = false
 
     public init() {}
@@ -121,6 +122,26 @@ public final class ComputerUseSession: @unchecked Sendable {
             if recentActions.count > 12 {
                 recentActions.removeFirst(recentActions.count - 12)
             }
+        }
+    }
+
+    func recordSnapshot(_ metadata: ComputerUseSnapshotMetadata?) {
+        guard let metadata else { return }
+        lock.withLock {
+            guard !finished else { return }
+            latestSnapshotMetadata = metadata
+        }
+    }
+
+    func requireLatestSnapshot(action: String) throws -> ComputerUseSnapshotMetadata {
+        try lock.withLock {
+            guard !finished else {
+                throw ComputerUseError.invalidArgument("computer use session is already finished")
+            }
+            guard let latestSnapshotMetadata else {
+                throw ComputerUseError.invalidArgument("\(action) requires a prior get-app-state result")
+            }
+            return latestSnapshotMetadata
         }
     }
 

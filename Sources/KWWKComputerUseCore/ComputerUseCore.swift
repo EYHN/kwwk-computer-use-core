@@ -235,7 +235,7 @@ enum ComputerUseCore {
     ) -> ComputerUseCommandOutput {
         let stateDump = ComputerUseStateFormatter.format(snapshot: snapshot)
         var text = """
-        Computer Use state (Snapshot: \(metadata.id))
+        Computer Use state
         <app_state>
         \(stateDump)
         </app_state>

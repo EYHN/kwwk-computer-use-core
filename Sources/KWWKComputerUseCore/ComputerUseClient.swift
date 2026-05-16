@@ -63,8 +63,7 @@ public final class ComputerUseClient: @unchecked Sendable {
 
     /// Captures an app state snapshot formatted for agent prompts.
     ///
-    /// The returned metadata contains a snapshot ID that action calls use to
-    /// validate state freshness and resolve element indexes.
+    /// The captured state becomes this client's latest snapshot for follow-up actions.
     public func getAppState(
         app appIdentifier: String,
         windowTitle: String? = nil,
@@ -74,6 +73,7 @@ public final class ComputerUseClient: @unchecked Sendable {
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
             includeScreenshot: includeScreenshot,
+            session: session,
             screenshotCompression: screenshotCompression
         )
     }
@@ -81,8 +81,7 @@ public final class ComputerUseClient: @unchecked Sendable {
     /// Captures an app state snapshot as structured data.
     ///
     /// Prefer this for product integrations that should not parse formatted
-    /// prompt text. The returned `metadata.id` is the snapshot ID for follow-up
-    /// action calls.
+    /// prompt text. The captured state becomes this client's latest snapshot.
     public func state(
         app appIdentifier: String,
         windowTitle: String? = nil,
@@ -92,18 +91,17 @@ public final class ComputerUseClient: @unchecked Sendable {
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
             includeScreenshot: includeScreenshot,
+            session: session,
             screenshotCompression: screenshotCompression
         )
     }
 
-    /// Clicks an element from a previously captured snapshot.
+    /// Clicks an element from the latest captured snapshot.
     public func click(
-        snapshotID: String,
         elementIndex: Int,
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.click(
-            snapshotID: snapshotID,
             elementIndex: elementIndex,
             x: nil,
             y: nil,
@@ -113,18 +111,16 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
-    /// Clicks a screenshot pixel coordinate from a screenshot-backed snapshot.
+    /// Clicks a screenshot pixel coordinate from the latest screenshot-backed snapshot.
     ///
     /// Coordinate clicks require the snapshot to have been captured with
     /// `includeScreenshot: true`.
     public func click(
-        snapshotID: String,
         x: Double,
         y: Double,
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.click(
-            snapshotID: snapshotID,
             elementIndex: nil,
             x: x,
             y: y,
@@ -136,13 +132,11 @@ public final class ComputerUseClient: @unchecked Sendable {
 
     /// Types text into an explicit editable element or the focused editable element.
     public func typeText(
-        snapshotID: String,
         text: String,
         elementIndex: Int? = nil,
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.typeText(
-            snapshotID: snapshotID,
             text: text,
             elementIndex: elementIndex,
             includeScreenshotAfter: includeScreenshotAfter,
@@ -153,13 +147,11 @@ public final class ComputerUseClient: @unchecked Sendable {
 
     /// Sets `AXValue` on a value-settable element.
     public func setValue(
-        snapshotID: String,
         elementIndex: Int,
         value: String,
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.setValue(
-            snapshotID: snapshotID,
             elementIndex: elementIndex,
             value: value,
             includeScreenshotAfter: includeScreenshotAfter,
@@ -170,12 +162,10 @@ public final class ComputerUseClient: @unchecked Sendable {
 
     /// Sends a key or key combination to the snapshot target.
     public func pressKey(
-        snapshotID: String,
         key: String,
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.pressKey(
-            snapshotID: snapshotID,
             key: key,
             includeScreenshotAfter: includeScreenshotAfter,
             session: session,
@@ -185,14 +175,12 @@ public final class ComputerUseClient: @unchecked Sendable {
 
     /// Scrolls from an element using AX scrolling when available, with wheel fallback.
     public func scroll(
-        snapshotID: String,
         elementIndex: Int,
         direction: String,
         pages: Double = 1,
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.scroll(
-            snapshotID: snapshotID,
             elementIndex: elementIndex,
             direction: direction,
             pages: pages,
@@ -204,13 +192,11 @@ public final class ComputerUseClient: @unchecked Sendable {
 
     /// Performs a secondary AX action by raw action name or display action name.
     public func performSecondaryAction(
-        snapshotID: String,
         elementIndex: Int,
         action: String,
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.performSecondaryAction(
-            snapshotID: snapshotID,
             elementIndex: elementIndex,
             action: action,
             includeScreenshotAfter: includeScreenshotAfter,
@@ -219,12 +205,11 @@ public final class ComputerUseClient: @unchecked Sendable {
         )
     }
 
-    /// Drags between two screenshot pixel coordinates from a screenshot-backed snapshot.
+    /// Drags between two screenshot pixel coordinates from the latest screenshot-backed snapshot.
     ///
     /// Drag coordinates require the snapshot to have been captured with
     /// `includeScreenshot: true`.
     public func drag(
-        snapshotID: String,
         fromX: Double,
         fromY: Double,
         toX: Double,
@@ -232,7 +217,6 @@ public final class ComputerUseClient: @unchecked Sendable {
         includeScreenshotAfter: Bool = false
     ) async throws -> ComputerUseCommandOutput {
         try await ComputerUseAction.drag(
-            snapshotID: snapshotID,
             fromX: fromX,
             fromY: fromY,
             toX: toX,

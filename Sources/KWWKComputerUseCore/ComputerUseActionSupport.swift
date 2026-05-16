@@ -332,6 +332,7 @@ extension ComputerUseAction {
     static func settledOutput(
         afterActionOn snapshot: RuntimeAppSnapshot,
         includeScreenshot: Bool,
+        session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression
     ) throws -> ComputerUseCommandOutput {
         let updated = try ComputerUseCore.captureSettledSnapshot(
@@ -339,6 +340,8 @@ extension ComputerUseAction {
             includeScreenshot: includeScreenshot,
             screenshotCompression: screenshotCompression
         )
-        return try ComputerUseCore.persistAndFormat(snapshot: updated)
+        let output = try ComputerUseCore.persistAndFormat(snapshot: updated)
+        session.recordSnapshot(output.metadata)
+        return output
     }
 }
