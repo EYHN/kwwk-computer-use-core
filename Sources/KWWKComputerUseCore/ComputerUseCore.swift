@@ -234,10 +234,12 @@ enum ComputerUseCore {
         metadata: ComputerUseSnapshotMetadata
     ) -> ComputerUseCommandOutput {
         let stateDump = ComputerUseStateFormatter.format(snapshot: snapshot)
+        let otherWindows = otherWindowsText(for: snapshot)
         var text = """
         Computer Use state
         <app_state>
         \(stateDump)
+        \(otherWindows)
         </app_state>
         """
 
@@ -250,6 +252,33 @@ enum ComputerUseCore {
         }
 
         return ComputerUseCommandOutput(text: text, metadata: metadata)
+    }
+
+    private static func otherWindowsText(for snapshot: RuntimeAppSnapshot) -> String {
+        let appIdentifier = snapshot.app.bundleIdentifier
+            ?? snapshot.app.localizedName
+            ?? ""
+        guard appIdentifier.isEmpty == false,
+              let windows = try? listWindows(appIdentifier: appIdentifier),
+              windows.count > 1
+        else {
+            return ""
+        }
+
+        var lines = ["Other windows:"]
+        for window in windows {
+            var flags: [String] = []
+            if window.windowID == snapshot.windowID {
+                flags.append("current")
+            }
+            if window.isMain {
+                flags.append("main")
+            }
+            let flagText = flags.isEmpty ? "" : " [\(flags.joined(separator: ","))]"
+            lines.append("- window_id=\(window.windowID) title=\"\(window.title)\"\(flagText)")
+        }
+        lines.append("Use window_title to inspect a different window.")
+        return lines.joined(separator: "\n")
     }
 
     private static let coordinateFrameTolerance: CGFloat = 8

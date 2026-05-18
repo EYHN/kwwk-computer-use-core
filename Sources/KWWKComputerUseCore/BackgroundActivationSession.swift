@@ -133,9 +133,9 @@ final class BackgroundActivationSession: @unchecked Sendable {
         guard windowNumber != 0, windowFrame.width > 0, windowFrame.height > 0 else { return }
 
         let point = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
-        postMouse(.leftMouseDown, targetPID: targetPID, windowNumber: windowNumber, point: point, clickState: 1, pressure: 1)
+        postMouse(.leftMouseDown, targetPID: targetPID, windowNumber: windowNumber, windowFrame: windowFrame, point: point, clickState: 1, pressure: 1)
         usleep(30_000)
-        postMouse(.leftMouseUp, targetPID: targetPID, windowNumber: windowNumber, point: point, clickState: 1, pressure: 0)
+        postMouse(.leftMouseUp, targetPID: targetPID, windowNumber: windowNumber, windowFrame: windowFrame, point: point, clickState: 1, pressure: 0)
         usleep(20_000)
     }
 
@@ -143,6 +143,7 @@ final class BackgroundActivationSession: @unchecked Sendable {
         _ type: CGEventType,
         targetPID: pid_t,
         windowNumber: Int,
+        windowFrame: CGRect,
         point: CGPoint,
         clickState: Int64,
         pressure: Double
@@ -157,7 +158,19 @@ final class BackgroundActivationSession: @unchecked Sendable {
         }
         event.setIntegerValueField(.mouseEventClickState, value: clickState)
         event.setDoubleValueField(.mouseEventPressure, value: pressure)
+        event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(targetPID))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(windowNumber))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(windowNumber))
         event.setWindowAddressingFields(windowNumber: windowNumber)
+        let windowLocalPoint = KWWKComputerUseCore.windowLocalPoint(
+            fromAXScreen: Point<AXScreenSpace>(point),
+            windowFrame: windowFrame
+        )
+        let quartzPoint = quartzWindowPoint(
+            fromWindowLocal: windowLocalPoint,
+            windowHeight: windowFrame.height
+        )
+        _ = BackgroundWindowLocalEvent.setPoint(quartzPoint.cgPoint, on: event)
         event.postToPid(targetPID)
     }
 
@@ -224,7 +237,7 @@ final class BackgroundActivationSession: @unchecked Sendable {
         case .deliveringToTarget:
             return kind == .previous
         case .holding:
-            return true
+            return kind == .previous
         case .finished:
             return false
         }

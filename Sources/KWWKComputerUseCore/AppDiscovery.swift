@@ -40,14 +40,6 @@ extension ComputerUseCore {
     }
 
     static func openApp(appIdentifier: String) async throws -> (app: ComputerUseAppDescriptor, didLaunch: Bool) {
-        if let running = resolveRunningApplicationIfAvailable(matching: appIdentifier),
-           let descriptor = appDescriptor(
-               runningApplication: running,
-               frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier
-           ) {
-            return (descriptor, false)
-        }
-
         let appURL = try resolveApplicationBundleURL(matching: appIdentifier)
         let launched = try await launchApplication(at: appURL)
         let deadline = ProcessInfo.processInfo.systemUptime + 10
