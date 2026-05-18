@@ -26,14 +26,12 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
         }
     }
 
-    static let shared = FrontmostApplicationMonitor()
-
     private let lock = NSLock()
     private let notifyQueue = DispatchQueue(label: "com.kwwk.computer-use.frontmost-monitor")
     private var handlers: [UUID: Handler] = [:]
     private var workspaceObserver: NSObjectProtocol?
 
-    private init() {
+    init() {
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,

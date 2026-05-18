@@ -33,11 +33,12 @@ public final class ComputerUseSession: @unchecked Sendable {
     private var previousObservations: [ObservationKey: Observation] = [:]
     private var recentActions: [String] = []
     private var latestSnapshotMetadata: ComputerUseSnapshotMetadata?
+    private let frontmostMonitor = FrontmostApplicationMonitor()
     private var frontmostObserver: FrontmostApplicationMonitor.ObserverToken?
     private var finished = false
 
     public init() {
-        frontmostObserver = FrontmostApplicationMonitor.shared.observe { [weak self] pid in
+        frontmostObserver = frontmostMonitor.observe { [weak self] pid in
             self?.frontmostApplicationDidChange(pid: pid)
         }
     }
