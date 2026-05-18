@@ -35,10 +35,17 @@ struct RuntimeAXNode {
     let collectionSummary: String?
 }
 
+enum RuntimeSurfaceKind: String {
+    case window
+    case status
+    case menu
+}
+
 struct RuntimeAppSnapshot {
     let app: NSRunningApplication
     let appElement: AXUIElement
     let windowElement: AXUIElement
+    let surfaceKind: RuntimeSurfaceKind
     let windowID: Int
     let windowTitle: String
     let windowFrame: CGRect
@@ -49,6 +56,36 @@ struct RuntimeAppSnapshot {
     let screenshotSize: CGSize?
     let fingerprint: String
 
+    init(
+        app: NSRunningApplication,
+        appElement: AXUIElement,
+        windowElement: AXUIElement,
+        surfaceKind: RuntimeSurfaceKind = .window,
+        windowID: Int,
+        windowTitle: String,
+        windowFrame: CGRect,
+        nodes: [RuntimeAXNode],
+        focusedElementIndex: Int?,
+        selectedText: String?,
+        screenshotURL: URL?,
+        screenshotSize: CGSize?,
+        fingerprint: String
+    ) {
+        self.app = app
+        self.appElement = appElement
+        self.windowElement = windowElement
+        self.surfaceKind = surfaceKind
+        self.windowID = windowID
+        self.windowTitle = windowTitle
+        self.windowFrame = windowFrame
+        self.nodes = nodes
+        self.focusedElementIndex = focusedElementIndex
+        self.selectedText = selectedText
+        self.screenshotURL = screenshotURL
+        self.screenshotSize = screenshotSize
+        self.fingerprint = fingerprint
+    }
+
     func node(index: Int) throws -> RuntimeAXNode {
         guard let node = nodes.first(where: { $0.index == index }) else {
             throw ComputerUseError.elementNotFound(index)
@@ -58,7 +95,8 @@ struct RuntimeAppSnapshot {
 }
 
 struct WindowSelection {
-    var titleSubstring: String?
+    var titleSubstring: String? = nil
+    var windowID: Int? = nil
 }
 
 enum ComputerUseCore {
@@ -149,12 +187,15 @@ enum ComputerUseCore {
             throw ComputerUseError.staleState(appName: metadata.appName)
         }
 
+        let selectedWindowID = metadata.windowID > 0 ? metadata.windowID : nil
+        let selectedTitle = metadata.windowID > 0 ? metadata.windowTitle : nil
+
         return try captureSnapshot(
             app: app,
-            selection: WindowSelection(titleSubstring: metadata.windowTitle),
+            selection: WindowSelection(titleSubstring: selectedTitle, windowID: selectedWindowID),
             includeScreenshot: includeScreenshot,
             screenshotCompression: screenshotCompression,
-            preferredWindowID: metadata.windowID,
+            preferredWindowID: selectedWindowID,
             preferredWindowFrame: metadata.windowFrame.cgRect,
             filterVisibleNodes: filterVisibleNodes
         )
@@ -223,6 +264,7 @@ enum ComputerUseCore {
         }
         return ComputerUseState(
             metadata: metadata,
+            surface: snapshot.surfaceKind.rawValue,
             focusedElementIndex: snapshot.focusedElementIndex,
             selectedText: snapshot.selectedText,
             nodes: nodes
@@ -235,9 +277,11 @@ enum ComputerUseCore {
     ) -> ComputerUseCommandOutput {
         let stateDump = ComputerUseStateFormatter.format(snapshot: snapshot)
         let otherWindows = otherWindowsText(for: snapshot)
+        let surfaceHint = surfaceHintText(for: snapshot)
         var text = """
         Computer Use state
-        <app_state>
+        <app_state surface="\(snapshot.surfaceKind.rawValue)">
+        \(surfaceHint)
         \(stateDump)
         \(otherWindows)
         </app_state>
@@ -252,6 +296,17 @@ enum ComputerUseCore {
         }
 
         return ComputerUseCommandOutput(text: text, metadata: metadata)
+    }
+
+    private static func surfaceHintText(for snapshot: RuntimeAppSnapshot) -> String {
+        switch snapshot.surfaceKind {
+        case .window:
+            return "Surface: window. The state below is the app window plus the app's top-level menu bar items."
+        case .status:
+            return "Surface: status. No app window is available; the state below contains the app's status item. Click it by element_index to open its status menu."
+        case .menu:
+            return "Surface: menu. An app menu is currently open. Click a menu item by element_index, or use press-key {\"key\":\"escape\"} to close the menu and return to the window."
+        }
     }
 
     private static func otherWindowsText(for snapshot: RuntimeAppSnapshot) -> String {
@@ -277,7 +332,7 @@ enum ComputerUseCore {
             let flagText = flags.isEmpty ? "" : " [\(flags.joined(separator: ","))]"
             lines.append("- window_id=\(window.windowID) title=\"\(window.title)\"\(flagText)")
         }
-        lines.append("Use window_title to inspect a different window.")
+        lines.append("Use window_id or window_title to inspect a different window.")
         return lines.joined(separator: "\n")
     }
 
@@ -313,12 +368,14 @@ enum ComputerUseCore {
         var latestSnapshot: RuntimeAppSnapshot?
 
         while true {
+            let selectedWindowID = snapshot.windowID > 0 ? snapshot.windowID : nil
+            let selectedTitle = snapshot.windowID > 0 ? snapshot.windowTitle : nil
             let candidate = try captureSnapshot(
                 app: snapshot.app,
-                selection: WindowSelection(titleSubstring: snapshot.windowTitle),
+                selection: WindowSelection(titleSubstring: selectedTitle),
                 includeScreenshot: false,
                 screenshotCompression: screenshotCompression,
-                preferredWindowID: snapshot.windowID,
+                preferredWindowID: selectedWindowID,
                 filterVisibleNodes: filterVisibleNodes
             )
             latestSnapshot = candidate
@@ -355,10 +412,10 @@ enum ComputerUseCore {
 
         return try captureSnapshot(
             app: latestSnapshot.app,
-            selection: WindowSelection(titleSubstring: latestSnapshot.windowTitle),
+            selection: WindowSelection(titleSubstring: latestSnapshot.windowID > 0 ? latestSnapshot.windowTitle : nil),
             includeScreenshot: true,
             screenshotCompression: screenshotCompression,
-            preferredWindowID: latestSnapshot.windowID,
+            preferredWindowID: latestSnapshot.windowID > 0 ? latestSnapshot.windowID : nil,
             filterVisibleNodes: filterVisibleNodes
         )
     }
@@ -377,20 +434,41 @@ enum ComputerUseCore {
             pid: app.processIdentifier,
             root: appElement
         )
-        let windowMatch = try resolveWindow(
-            in: appElement,
-            app: app,
-            titleSubstring: selection.titleSubstring,
-            preferredWindowID: preferredWindowID,
-            preferredWindowFrame: preferredWindowFrame
-        )
-
         let focusedElement = cuAttribute(
             appElement,
             name: kAXFocusedUIElementAttribute as String
         ) as AXUIElement?
 
-        if let popupMenu = popupMenuCandidate(in: appElement) ?? activeMenuBarItemCandidate(in: appElement) {
+        let windowMatch: (element: AXUIElement, title: String, frame: CGRect, cgWindow: CUWindowSnapshot)
+        do {
+            windowMatch = try resolveWindow(
+                in: appElement,
+                app: app,
+                titleSubstring: selection.titleSubstring,
+                preferredWindowID: selection.windowID ?? preferredWindowID,
+                preferredWindowFrame: preferredWindowFrame,
+                requirePreferredWindowID: selection.windowID != nil
+            )
+        } catch let error as ComputerUseError {
+            guard case .windowNotFound = error,
+                  selection.titleSubstring == nil,
+                  selection.windowID == nil,
+                  preferredWindowID == nil,
+                  let statusSnapshot = statusSurfaceSnapshot(
+                    app: app,
+                    appElement: appElement,
+                    focusedElement: focusedElement,
+                    filterVisibleNodes: filterVisibleNodes
+                  )
+            else {
+                throw error
+            }
+            return statusSnapshot
+        }
+
+        if let popupMenu = popupMenuCandidate(in: appElement) ??
+            activeMenuBarItemCandidate(in: appElement) ??
+            activeStatusMenuItemCandidate(in: appElement) {
             let nodes = flattenTree(
                 from: popupMenu.element,
                 focusedElement: focusedElement,
@@ -417,6 +495,7 @@ enum ComputerUseCore {
                 app: app,
                 appElement: appElement,
                 windowElement: popupMenu.element,
+                surfaceKind: .menu,
                 windowID: windowMatch.cgWindow.windowID,
                 windowTitle: windowMatch.title,
                 windowFrame: windowMatch.frame,
@@ -443,6 +522,18 @@ enum ComputerUseCore {
                     visibleFrame: cuFrame(menuBar) ?? windowMatch.frame,
                     filterVisibleNodes: filterVisibleNodes,
                     maxDepth: 1
+                ),
+                startingAt: nodes.count
+            ))
+        }
+        for statusItem in statusMenuExtraCandidates(in: appElement) {
+            nodes.append(contentsOf: reindexedNodes(
+                flattenTree(
+                    from: statusItem,
+                    focusedElement: focusedElement,
+                    visibleFrame: cuFrame(statusItem) ?? windowMatch.frame,
+                    filterVisibleNodes: filterVisibleNodes,
+                    maxDepth: 0
                 ),
                 startingAt: nodes.count
             ))
@@ -477,6 +568,7 @@ enum ComputerUseCore {
             app: app,
             appElement: appElement,
             windowElement: windowMatch.element,
+            surfaceKind: .window,
             windowID: windowMatch.cgWindow.windowID,
             windowTitle: windowMatch.title,
             windowFrame: windowMatch.frame,
@@ -487,6 +579,118 @@ enum ComputerUseCore {
             screenshotSize: screenshotCapture?.size,
             fingerprint: fingerprint
         )
+    }
+
+    private static func statusSurfaceSnapshot(
+        app: NSRunningApplication,
+        appElement: AXUIElement,
+        focusedElement: AXUIElement?,
+        filterVisibleNodes: Bool
+    ) -> RuntimeAppSnapshot? {
+        if let popupMenu = activeStatusMenuItemCandidate(in: appElement) {
+            return statusSurfaceSnapshot(
+                app: app,
+                appElement: appElement,
+                focusedElement: focusedElement,
+                rootElement: popupMenu.element,
+                surfaceKind: .menu,
+                title: "Status Menu",
+                frame: popupMenu.frame,
+                filterVisibleNodes: filterVisibleNodes
+            )
+        }
+
+        let statusItems = statusMenuExtraCandidates(in: appElement)
+        guard let firstStatusItem = statusItems.first else {
+            return nil
+        }
+
+        let frames = statusItems.compactMap(cuFrame)
+        let frame = frames.reduce(CGRect.null) { partial, next in
+            partial.isNull ? next : partial.union(next)
+        }
+        let visibleFrame = frame.isNull ? (cuFrame(firstStatusItem) ?? .zero) : frame
+
+        var nodes: [RuntimeAXNode] = []
+        for statusItem in statusItems {
+            nodes.append(contentsOf: reindexedNodes(
+                flattenTree(
+                    from: statusItem,
+                    focusedElement: focusedElement,
+                    visibleFrame: cuFrame(statusItem) ?? visibleFrame,
+                    filterVisibleNodes: filterVisibleNodes,
+                    maxDepth: 0
+                ),
+                startingAt: nodes.count
+            ))
+        }
+
+        return statusSurfaceSnapshot(
+            app: app,
+            appElement: appElement,
+            focusedElement: focusedElement,
+            rootElement: firstStatusItem,
+            surfaceKind: .status,
+            title: "Status Items",
+            frame: visibleFrame,
+            nodes: nodes,
+            filterVisibleNodes: filterVisibleNodes
+        )
+    }
+
+    private static func statusSurfaceSnapshot(
+        app: NSRunningApplication,
+        appElement: AXUIElement,
+        focusedElement: AXUIElement?,
+        rootElement: AXUIElement,
+        surfaceKind: RuntimeSurfaceKind,
+        title: String,
+        frame: CGRect,
+        nodes providedNodes: [RuntimeAXNode]? = nil,
+        filterVisibleNodes: Bool
+    ) -> RuntimeAppSnapshot {
+        let nodes = providedNodes ?? flattenTree(
+            from: rootElement,
+            focusedElement: focusedElement,
+            visibleFrame: frame,
+            filterVisibleNodes: filterVisibleNodes
+        )
+        let focusedIndex = focusedElement.flatMap { focused in
+            nodes.first(where: { CFEqual($0.element, focused) })?.index
+        }
+        let selectedText = focusedElement.flatMap {
+            cuAttribute($0, name: kAXSelectedTextAttribute as String) as String?
+        }
+        let windowID = statusSurfaceWindowID(app: app, frame: frame)
+        let fingerprint = fingerprint(
+            app: app,
+            windowID: windowID,
+            windowTitle: title,
+            windowFrame: frame,
+            nodes: nodes,
+            focusedElementIndex: focusedIndex,
+            selectedText: selectedText
+        )
+
+        return RuntimeAppSnapshot(
+            app: app,
+            appElement: appElement,
+            windowElement: rootElement,
+            surfaceKind: surfaceKind,
+            windowID: windowID,
+            windowTitle: title,
+            windowFrame: frame,
+            nodes: nodes,
+            focusedElementIndex: focusedIndex,
+            selectedText: selectedText,
+            screenshotURL: nil,
+            screenshotSize: nil,
+            fingerprint: fingerprint
+        )
+    }
+
+    private static func statusSurfaceWindowID(app _: NSRunningApplication, frame _: CGRect) -> Int {
+        return 0
     }
 
     private static func resolveRunningApp(

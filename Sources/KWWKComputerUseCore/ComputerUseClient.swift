@@ -67,11 +67,13 @@ public final class ComputerUseClient: @unchecked Sendable {
     public func getAppState(
         app appIdentifier: String,
         windowTitle: String? = nil,
+        windowID: Int? = nil,
         includeScreenshot: Bool = false
     ) throws -> ComputerUseCommandOutput {
         try ComputerUseAction.getAppState(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
+            windowID: windowID,
             includeScreenshot: includeScreenshot,
             session: session,
             screenshotCompression: screenshotCompression
@@ -85,11 +87,13 @@ public final class ComputerUseClient: @unchecked Sendable {
     public func state(
         app appIdentifier: String,
         windowTitle: String? = nil,
+        windowID: Int? = nil,
         includeScreenshot: Bool = false
     ) throws -> ComputerUseState {
         try ComputerUseAction.getStructuredAppState(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
+            windowID: windowID,
             includeScreenshot: includeScreenshot,
             session: session,
             screenshotCompression: screenshotCompression

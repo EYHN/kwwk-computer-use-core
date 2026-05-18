@@ -277,6 +277,10 @@ public final class ComputerUseSession: @unchecked Sendable {
         target: inout ActiveTarget,
         appIsFrontmost: Bool
     ) throws -> Bool {
+        guard snapshot.windowID > 0 else {
+            return false
+        }
+
         let windowIsMain = isTargetWindowMain(snapshot)
 
         if appIsFrontmost {

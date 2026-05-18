@@ -5,19 +5,21 @@ extension ComputerUseAction {
     static func captureSnapshotWithWindowFallback(
         appIdentifier: String,
         windowTitle: String?,
+        windowID: Int?,
         includeScreenshot: Bool,
         screenshotCompression: ComputerUseScreenshotCompression
     ) throws -> (snapshot: RuntimeAppSnapshot, usedWindowFallback: Bool) {
         do {
             let snapshot = try ComputerUseCore.captureSnapshot(
                 appIdentifier: appIdentifier,
-                selection: WindowSelection(titleSubstring: windowTitle),
+                selection: WindowSelection(titleSubstring: windowTitle, windowID: windowID),
                 includeScreenshot: includeScreenshot,
                 screenshotCompression: screenshotCompression
             )
             return (snapshot, false)
         } catch let error as ComputerUseError {
             guard case .windowNotFound = error,
+                  windowID == nil,
                   let windowTitle,
                   windowTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             else {
@@ -36,6 +38,7 @@ extension ComputerUseAction {
     static func captureSnapshotAfterPreparingTarget(
         appIdentifier: String,
         windowTitle: String?,
+        windowID: Int?,
         includeScreenshot: Bool,
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression
@@ -43,6 +46,7 @@ extension ComputerUseAction {
         let result = try captureSnapshotWithWindowFallback(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
+            windowID: windowID,
             includeScreenshot: includeScreenshot,
             screenshotCompression: screenshotCompression
         )
@@ -54,6 +58,7 @@ extension ComputerUseAction {
         let refreshed = try captureSnapshotWithWindowFallback(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
+            windowID: windowID,
             includeScreenshot: includeScreenshot,
             screenshotCompression: screenshotCompression
         )
@@ -162,6 +167,10 @@ extension ComputerUseAction {
         return webAreaAncestor(for: node, in: snapshot) != nil
     }
 
+    static func isStatusMenuExtra(_ node: RuntimeAXNode) -> Bool {
+        node.role == (kAXMenuBarItemRole as String) && node.subrole == "AXMenuExtra"
+    }
+
     static func webAreaAncestor(
         for node: RuntimeAXNode,
         in snapshot: RuntimeAppSnapshot
@@ -210,6 +219,21 @@ extension ComputerUseAction {
         let succeeded = AXUIElementPerformAction(node.element, action as CFString) == .success
         FocusDebug.log("ax \(displayName(forAction: action)) end success=\(succeeded): \(focusTargetDescription(snapshot))")
         return succeeded
+    }
+
+    static func performStatusMenuExtraActionIfAvailable(
+        on node: RuntimeAXNode,
+        in snapshot: RuntimeAppSnapshot
+    ) -> Bool {
+        let preferredActions = [kAXPressAction as String, "AXPick"]
+        guard let action = preferredActions.first(where: { node.actions.contains($0) }) else {
+            return false
+        }
+
+        FocusDebug.log("ax status \(displayName(forAction: action)) start element=\(node.index): \(focusTargetDescription(snapshot))")
+        let result = AXUIElementPerformAction(node.element, action as CFString)
+        FocusDebug.log("ax status \(displayName(forAction: action)) end result=\(result.rawValue): \(focusTargetDescription(snapshot))")
+        return true
     }
 
     static func focusTargetDescription(_ snapshot: RuntimeAppSnapshot) -> String {

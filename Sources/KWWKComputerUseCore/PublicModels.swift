@@ -270,17 +270,20 @@ public struct ComputerUseWindowDescriptor: Equatable, Sendable {
 
 public struct ComputerUseState: Codable, Equatable, Sendable {
     public var metadata: ComputerUseSnapshotMetadata
+    public var surface: String
     public var focusedElementIndex: Int?
     public var selectedText: String?
     public var nodes: [ComputerUseNode]
 
     public init(
         metadata: ComputerUseSnapshotMetadata,
+        surface: String = "window",
         focusedElementIndex: Int?,
         selectedText: String?,
         nodes: [ComputerUseNode]
     ) {
         self.metadata = metadata
+        self.surface = surface
         self.focusedElementIndex = focusedElementIndex
         self.selectedText = selectedText
         self.nodes = nodes

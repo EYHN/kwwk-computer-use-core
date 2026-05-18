@@ -51,7 +51,8 @@ extension ComputerUseCore {
         app: NSRunningApplication,
         titleSubstring: String?,
         preferredWindowID: Int?,
-        preferredWindowFrame: CGRect? = nil
+        preferredWindowFrame: CGRect? = nil,
+        requirePreferredWindowID: Bool = false
     ) throws -> (element: AXUIElement, title: String, frame: CGRect, cgWindow: CUWindowSnapshot) {
         let candidates = windowCandidates(
             in: appElement,
@@ -63,6 +64,13 @@ extension ComputerUseCore {
            let exact = candidates.first(where: { $0.cgWindow.windowID == preferredWindowID })
         {
             return resolvedWindow(exact)
+        }
+
+        if let preferredWindowID, requirePreferredWindowID {
+            throw ComputerUseError.windowNotFound(
+                app: app.localizedName ?? app.bundleIdentifier ?? "Unknown",
+                title: "window_id=\(preferredWindowID)"
+            )
         }
 
         if let preferredWindowFrame,

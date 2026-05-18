@@ -32,20 +32,32 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
     private var workspaceObserver: NSObjectProtocol?
 
     init() {
-        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            guard
-                let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            else {
-                return
+        installWorkspaceObserver()
+    }
+
+    private func installWorkspaceObserver() {
+        let install = {
+            self.workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didActivateApplicationNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                guard
+                    let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                else {
+                    return
+                }
+                let pid = app.processIdentifier
+                self?.notifyQueue.async { [weak self] in
+                    self?.notifyFrontmostPID(pid)
+                }
             }
-            let pid = app.processIdentifier
-            self?.notifyQueue.async { [weak self] in
-                self?.notifyFrontmostPID(pid)
-            }
+        }
+
+        if Thread.isMainThread {
+            install()
+        } else {
+            DispatchQueue.main.sync(execute: install)
         }
     }
 
@@ -76,8 +88,14 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
     }
 
     deinit {
-        if let workspaceObserver {
+        guard let workspaceObserver else { return }
+        let remove = {
             NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
+        }
+        if Thread.isMainThread {
+            remove()
+        } else {
+            DispatchQueue.main.sync(execute: remove)
         }
     }
 }

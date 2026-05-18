@@ -26,6 +26,7 @@ private enum ComputerUseTestHarness {
                 try ComputerUseAction.getAppState(
                     appIdentifier: try requiredString(args, "app"),
                     windowTitle: optionalString(args, "window_title"),
+                    windowID: optionalInt(args, "window_id"),
                     includeScreenshot: optionalBool(args, "include_screenshot") ?? false,
                     session: session,
                     screenshotCompression: screenshotCompression

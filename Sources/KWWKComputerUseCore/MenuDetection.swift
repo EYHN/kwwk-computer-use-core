@@ -57,13 +57,78 @@ extension ComputerUseCore {
             guard menus.isEmpty == false else {
                 continue
             }
-            let frame = cuFrame(item) ?? menus.compactMap(cuFrame).first
-            if let frame {
+            let frames = ([cuFrame(item)] + menus.map(cuFrame)).compactMap { $0 }
+            let frame = frames.reduce(CGRect.null) { partial, next in
+                partial.isNull ? next : partial.union(next)
+            }
+            if frame.isNull == false {
                 return PopupMenuCandidate(element: item, frame: frame)
             }
         }
 
         return nil
+    }
+
+    static func activeStatusMenuItemCandidate(in appElement: AXUIElement) -> PopupMenuCandidate? {
+        for item in statusMenuExtraCandidates(in: appElement) {
+            let menus = cuChildElements(item).filter { child in
+                let role = cuAttribute(child, name: kAXRoleAttribute as String) as String? ?? ""
+                return role == (kAXMenuRole as String) && popupMenuHasItems(child)
+            }
+            guard menus.isEmpty == false else {
+                continue
+            }
+
+            let hasVisibleMenu = menus.contains {
+                cuElements(from: cuRawAttribute($0, name: "AXVisibleChildren")).isEmpty == false
+            }
+            let isActive = cuBoolAttribute(item, name: kAXSelectedAttribute as String) == true ||
+                cuBoolAttribute(item, name: kAXFocusedAttribute as String) == true ||
+                hasVisibleMenu
+            guard isActive else {
+                continue
+            }
+
+            let frames = ([cuFrame(item)] + menus.map(cuFrame)).compactMap { $0 }
+            let frame = frames.reduce(CGRect.null) { partial, next in
+                partial.isNull ? next : partial.union(next)
+            }
+            if frame.isNull == false {
+                return PopupMenuCandidate(element: item, frame: frame)
+            }
+        }
+
+        return nil
+    }
+
+    static func statusMenuExtraCandidates(in appElement: AXUIElement) -> [AXUIElement] {
+        var stack = [appElement]
+        var visited = Set<CFHashCode>()
+        var result: [AXUIElement] = []
+
+        while let element = stack.popLast() {
+            let identifier = CFHash(element)
+            if visited.contains(identifier) {
+                continue
+            }
+            visited.insert(identifier)
+
+            let role = cuAttribute(element, name: kAXRoleAttribute as String) as String? ?? ""
+            let subrole = cuAttribute(element, name: kAXSubroleAttribute as String) as String? ?? ""
+            if role == (kAXMenuBarItemRole as String),
+               subrole == "AXMenuExtra",
+               let frame = cuFrame(element),
+               frame.minY <= 45,
+               frame.width > 0,
+               frame.height > 0 {
+                result.append(element)
+                continue
+            }
+
+            stack.append(contentsOf: cuChildElements(element))
+        }
+
+        return result
     }
 
     private static func isTransientPopupMenu(_ menu: AXUIElement) -> Bool {

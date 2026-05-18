@@ -5,6 +5,7 @@ public enum ComputerUseAction {
     public static func getAppState(
         appIdentifier: String,
         windowTitle: String?,
+        windowID: Int?,
         includeScreenshot: Bool,
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
@@ -12,6 +13,7 @@ public enum ComputerUseAction {
         let result = try captureSnapshotAfterPreparingTarget(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
+            windowID: windowID,
             includeScreenshot: includeScreenshot,
             session: session,
             screenshotCompression: screenshotCompression
@@ -35,6 +37,7 @@ public enum ComputerUseAction {
     public static func getStructuredAppState(
         appIdentifier: String,
         windowTitle: String?,
+        windowID: Int?,
         includeScreenshot: Bool,
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
@@ -42,6 +45,7 @@ public enum ComputerUseAction {
         let result = try captureSnapshotAfterPreparingTarget(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
+            windowID: windowID,
             includeScreenshot: includeScreenshot,
             session: session,
             screenshotCompression: screenshotCompression
@@ -106,7 +110,7 @@ public enum ComputerUseAction {
         }
         let point: CGPoint?
         if let node {
-            point = try? localPoint(node: node, in: current)
+            point = isStatusMenuExtra(node) ? nil : try? localPoint(node: node, in: current)
         } else if let x, let y {
             try ComputerUseCore.ensureStableFrameForCoordinateAction(
                 metadata: metadata,
@@ -129,7 +133,11 @@ public enum ComputerUseAction {
 
         return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
             if let node {
-                if shouldUseMouseClickForElement(node, in: current) ||
+                if isStatusMenuExtra(node) {
+                    guard performStatusMenuExtraActionIfAvailable(on: node, in: current) else {
+                        throw ComputerUseError.invalidArgument("status menu extra has no supported AX action")
+                    }
+                } else if shouldUseMouseClickForElement(node, in: current) ||
                     !performDefaultAXActionIfAvailable(on: node, in: current) {
                     try clickAtLocalPoint(try localPoint(node: node, in: current), in: current)
                 }
