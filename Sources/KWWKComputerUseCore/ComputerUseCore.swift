@@ -536,7 +536,12 @@ enum ComputerUseCore {
 
         var visited = Set<CFHashCode>()
 
-        func build(_ element: AXUIElement, depth: Int, visibleClip: CGRect) -> PendingNode? {
+        func build(
+            _ element: AXUIElement,
+            depth: Int,
+            visibleClip: CGRect,
+            insideWebArea: Bool
+        ) -> PendingNode? {
             guard depth <= maxDepth else {
                 return nil
             }
@@ -564,14 +569,25 @@ enum ComputerUseCore {
             let childVisibleClip = filterVisibleNodes
                 ? cuDescendantVisibleClip(role: role, frame: frame, inheritedClip: visibleClip)
                 : visibleClip
+            let childInsideWebArea = insideWebArea || role == "AXWebArea"
             let children = rawChildren.compactMap {
-                build($0, depth: depth + 1, visibleClip: childVisibleClip)
+                build(
+                    $0,
+                    depth: depth + 1,
+                    visibleClip: childVisibleClip,
+                    insideWebArea: childInsideWebArea
+                )
             }
 
+            let frameVisible = insideWebArea
+                ? cuWebFrameIsMeaningfullyVisible(frame, in: visibleClip)
+                : cuFrameIsVisible(frame, in: visibleClip)
             let visible = if roleCanContainVisibleDescendants(role) {
-                cuFrameIsVisible(frame, in: visibleClip) || children.isEmpty == false
+                frameVisible || children.isEmpty == false
             } else {
-                cuFrameIsMeaningfullyVisible(frame, in: visibleClip)
+                insideWebArea
+                    ? cuWebFrameIsMeaningfullyVisible(frame, in: visibleClip)
+                    : cuFrameIsMeaningfullyVisible(frame, in: visibleClip)
             }
             let selfDescribingStructuralNode = roleCanContainVisibleDescendants(role) &&
                 (!title.isEmpty || !description.isEmpty)
@@ -611,7 +627,7 @@ enum ComputerUseCore {
             )
         }
 
-        guard let rootNode = build(root, depth: 0, visibleClip: visibleFrame) else {
+        guard let rootNode = build(root, depth: 0, visibleClip: visibleFrame, insideWebArea: false) else {
             return []
         }
 

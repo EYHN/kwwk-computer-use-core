@@ -33,6 +33,36 @@ extension ComputerUseAction {
         }
     }
 
+    static func captureSnapshotAfterPreparingTarget(
+        appIdentifier: String,
+        windowTitle: String?,
+        includeScreenshot: Bool,
+        session: ComputerUseSession,
+        screenshotCompression: ComputerUseScreenshotCompression
+    ) throws -> (snapshot: RuntimeAppSnapshot, usedWindowFallback: Bool) {
+        let result = try captureSnapshotWithWindowFallback(
+            appIdentifier: appIdentifier,
+            windowTitle: windowTitle,
+            includeScreenshot: includeScreenshot,
+            screenshotCompression: screenshotCompression
+        )
+        let preparedTarget = try session.prepareForSnapshotCapture(on: result.snapshot)
+        guard preparedTarget else {
+            return result
+        }
+
+        let refreshed = try captureSnapshotWithWindowFallback(
+            appIdentifier: appIdentifier,
+            windowTitle: windowTitle,
+            includeScreenshot: includeScreenshot,
+            screenshotCompression: screenshotCompression
+        )
+        return (
+            snapshot: refreshed.snapshot,
+            usedWindowFallback: result.usedWindowFallback || refreshed.usedWindowFallback
+        )
+    }
+
     static func localPoint(
         node: RuntimeAXNode,
         in snapshot: RuntimeAppSnapshot
@@ -118,6 +148,47 @@ extension ComputerUseAction {
             modifierFlags: []
         )
         try dispatcher.click(at: localPoint)
+    }
+
+    static func shouldUseMouseClickForElement(
+        _ node: RuntimeAXNode,
+        in snapshot: RuntimeAppSnapshot
+    ) -> Bool {
+        guard node.role != kAXMenuBarItemRole as String,
+              node.role != kAXMenuItemRole as String
+        else {
+            return false
+        }
+        return webAreaAncestor(for: node, in: snapshot) != nil
+    }
+
+    static func webAreaAncestor(
+        for node: RuntimeAXNode,
+        in snapshot: RuntimeAppSnapshot
+    ) -> RuntimeAXNode? {
+        ancestor(matching: { $0.role == "AXWebArea" }, for: node, in: snapshot)
+    }
+
+    static func ancestor(
+        matching predicate: (RuntimeAXNode) -> Bool,
+        for node: RuntimeAXNode,
+        in snapshot: RuntimeAppSnapshot
+    ) -> RuntimeAXNode? {
+        guard node.depth > 0,
+              let position = snapshot.nodes.firstIndex(where: { $0.index == node.index })
+        else { return nil }
+        var parentDepth = node.depth - 1
+        for candidate in snapshot.nodes[..<position].reversed() {
+            guard candidate.depth == parentDepth else { continue }
+            if predicate(candidate) {
+                return candidate
+            }
+            if parentDepth == 0 {
+                return nil
+            }
+            parentDepth -= 1
+        }
+        return nil
     }
 
     static func performDefaultAXActionIfAvailable(

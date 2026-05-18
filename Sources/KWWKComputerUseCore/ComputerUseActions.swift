@@ -9,10 +9,11 @@ public enum ComputerUseAction {
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) throws -> ComputerUseCommandOutput {
-        let result = try captureSnapshotWithWindowFallback(
+        let result = try captureSnapshotAfterPreparingTarget(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
             includeScreenshot: includeScreenshot,
+            session: session,
             screenshotCompression: screenshotCompression
         )
         let output = try ComputerUseCore.persistAndFormat(snapshot: result.snapshot)
@@ -38,10 +39,11 @@ public enum ComputerUseAction {
         session: ComputerUseSession,
         screenshotCompression: ComputerUseScreenshotCompression = .foregroundDefault
     ) throws -> ComputerUseState {
-        let result = try captureSnapshotWithWindowFallback(
+        let result = try captureSnapshotAfterPreparingTarget(
             appIdentifier: appIdentifier,
             windowTitle: windowTitle,
             includeScreenshot: includeScreenshot,
+            session: session,
             screenshotCompression: screenshotCompression
         )
         let state = try ComputerUseCore.persistAndBuildState(snapshot: result.snapshot)
@@ -127,7 +129,8 @@ public enum ComputerUseAction {
 
         return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
             if let node {
-                if !performDefaultAXActionIfAvailable(on: node, in: current) {
+                if shouldUseMouseClickForElement(node, in: current) ||
+                    !performDefaultAXActionIfAvailable(on: node, in: current) {
                     try clickAtLocalPoint(try localPoint(node: node, in: current), in: current)
                 }
             } else if let x, let y {

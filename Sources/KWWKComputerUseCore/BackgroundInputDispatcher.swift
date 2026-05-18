@@ -34,6 +34,14 @@ extension MouseButton {
         case .middle: .otherMouseUp
         }
     }
+
+    var cgButtonNumber: Int64 {
+        switch self {
+        case .left: 0
+        case .right: 1
+        case .middle: 2
+        }
+    }
 }
 
 struct BackgroundMouseDispatcher {
@@ -108,7 +116,12 @@ struct BackgroundMouseDispatcher {
             event.location = screenPoint
             event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(targetPID))
             event.setWindowAddressingFields(windowNumber: windowNumber)
-            event.postToPid(targetPID)
+            let quartzPoint = quartzWindowPoint(
+                fromWindowLocal: Point<WindowLocalSpace>(windowLocalPoint),
+                windowHeight: windowFrame.height
+            )
+            _ = BackgroundWindowLocalEvent.setPoint(quartzPoint.cgPoint, on: event)
+            postEvent(event)
             usleep(8_000)
         }
         logFocusState("pid scroll end")
@@ -136,12 +149,28 @@ struct BackgroundMouseDispatcher {
         event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(windowNumber))
         event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(windowNumber))
         event.setWindowAddressingFields(windowNumber: windowNumber)
+        let quartzPoint = quartzWindowPoint(
+            fromWindowLocal: Point<WindowLocalSpace>(windowLocalPoint(from: screenPoint)),
+            windowHeight: windowFrame.height
+        )
+        _ = BackgroundWindowLocalEvent.setPoint(quartzPoint.cgPoint, on: event)
+        postEvent(event)
+    }
+
+    private func postEvent(_ event: CGEvent) {
         event.postToPid(targetPID)
     }
 
     private func screenPoint(from windowLocalPoint: CGPoint) -> CGPoint {
         axScreenPoint(
             fromWindowLocal: Point<WindowLocalSpace>(windowLocalPoint),
+            windowFrame: windowFrame
+        ).cgPoint
+    }
+
+    private func windowLocalPoint(from screenPoint: CGPoint) -> CGPoint {
+        KWWKComputerUseCore.windowLocalPoint(
+            fromAXScreen: Point<AXScreenSpace>(screenPoint),
             windowFrame: windowFrame
         ).cgPoint
     }

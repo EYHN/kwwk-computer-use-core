@@ -31,26 +31,24 @@ final class BackgroundActivationSession: @unchecked Sendable {
     private static let focusSuppressionEventMask = CGEventMask.max
 
     private let targetPID: pid_t
-    private let previousApp: NSRunningApplication?
     private let stateLock = NSLock()
     private var phase: Phase = .deliveringToTarget
     private var taps: [CFMachPort] = []
     private var contexts: [TapContext] = []
     private var finished = false
 
-    private init(targetPID: pid_t, previousApp: NSRunningApplication?) {
+    private init(targetPID: pid_t) {
         self.targetPID = targetPID
-        self.previousApp = previousApp
     }
 
     static func start(targetPID: pid_t) throws -> BackgroundActivationSession {
         sessionLock.lock()
 
         let previousApp = NSWorkspace.shared.frontmostApplication
-        let session = BackgroundActivationSession(targetPID: targetPID, previousApp: previousApp)
+        let session = BackgroundActivationSession(targetPID: targetPID)
 
         do {
-            try session.installTapsIfNeeded()
+            try session.installTapsIfNeeded(previousApp: previousApp)
             return session
         } catch {
             session.finish()
@@ -59,16 +57,29 @@ final class BackgroundActivationSession: @unchecked Sendable {
     }
 
     func beginTargetDelivery() {
-        guard needsSuppression else { return }
+        guard hasFocusSuppressionTaps else { return }
         setPhase(.deliveringToTarget)
     }
 
     func holdFocusSuppressionUntilFinish() {
-        guard needsSuppression else { return }
+        guard hasFocusSuppressionTaps else { return }
         setPhase(.holding)
     }
 
     func activateWindow(windowNumber: Int, windowFrame: CGRect) {
+        Self.activateWindow(
+            targetPID: targetPID,
+            windowNumber: windowNumber,
+            windowFrame: windowFrame
+        )
+    }
+
+    static func activateWindow(targetPID: pid_t, windowNumber: Int, windowFrame: CGRect) {
+        postWindowActivationEvent(targetPID: targetPID, windowNumber: windowNumber)
+        postWindowCenterPrimer(targetPID: targetPID, windowNumber: windowNumber, windowFrame: windowFrame)
+    }
+
+    private static func postWindowActivationEvent(targetPID: pid_t, windowNumber: Int) {
         guard windowNumber != 0 else { return }
         let event = NSEvent.otherEvent(
             with: .appKitDefined,
@@ -118,6 +129,38 @@ final class BackgroundActivationSession: @unchecked Sendable {
         event.postToPid(targetPID)
     }
 
+    private static func postWindowCenterPrimer(targetPID: pid_t, windowNumber: Int, windowFrame: CGRect) {
+        guard windowNumber != 0, windowFrame.width > 0, windowFrame.height > 0 else { return }
+
+        let point = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
+        postMouse(.leftMouseDown, targetPID: targetPID, windowNumber: windowNumber, point: point, clickState: 1, pressure: 1)
+        usleep(30_000)
+        postMouse(.leftMouseUp, targetPID: targetPID, windowNumber: windowNumber, point: point, clickState: 1, pressure: 0)
+        usleep(20_000)
+    }
+
+    private static func postMouse(
+        _ type: CGEventType,
+        targetPID: pid_t,
+        windowNumber: Int,
+        point: CGPoint,
+        clickState: Int64,
+        pressure: Double
+    ) {
+        guard let event = CGEvent(
+            mouseEventSource: nil,
+            mouseType: type,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) else {
+            return
+        }
+        event.setIntegerValueField(.mouseEventClickState, value: clickState)
+        event.setDoubleValueField(.mouseEventPressure, value: pressure)
+        event.setWindowAddressingFields(windowNumber: windowNumber)
+        event.postToPid(targetPID)
+    }
+
     func finish() {
         let shouldUnlock: Bool = stateLock.withLock {
             guard !finished else { return false }
@@ -139,13 +182,12 @@ final class BackgroundActivationSession: @unchecked Sendable {
         finish()
     }
 
-    private var needsSuppression: Bool {
-        guard let previousApp else { return false }
-        return previousApp.processIdentifier != targetPID
+    private var hasFocusSuppressionTaps: Bool {
+        !taps.isEmpty
     }
 
-    private func installTapsIfNeeded() throws {
-        guard needsSuppression, let previousApp else { return }
+    private func installTapsIfNeeded(previousApp: NSRunningApplication?) throws {
+        guard let previousApp, previousApp.processIdentifier != targetPID else { return }
 
         try installTap(kind: .previous, pid: previousApp.processIdentifier)
         try installTap(kind: .target, pid: targetPID)

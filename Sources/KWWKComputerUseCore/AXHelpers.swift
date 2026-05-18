@@ -194,6 +194,22 @@ func cuFrameIsVisible(_ frame: CGRect?, in visibleFrame: CGRect) -> Bool {
 }
 
 func cuFrameIsMeaningfullyVisible(_ frame: CGRect?, in visibleFrame: CGRect) -> Bool {
+    cuFrameIsMeaningfullyVisible(frame, in: visibleFrame, minimumIntersectionSize: nil)
+}
+
+func cuWebFrameIsMeaningfullyVisible(_ frame: CGRect?, in visibleFrame: CGRect) -> Bool {
+    cuFrameIsMeaningfullyVisible(
+        frame,
+        in: visibleFrame,
+        minimumIntersectionSize: CGSize(width: 4, height: 4)
+    )
+}
+
+private func cuFrameIsMeaningfullyVisible(
+    _ frame: CGRect?,
+    in visibleFrame: CGRect,
+    minimumIntersectionSize: CGSize?
+) -> Bool {
     guard let frame,
           frame.width > 0,
           frame.height > 0,
@@ -211,6 +227,11 @@ func cuFrameIsMeaningfullyVisible(_ frame: CGRect?, in visibleFrame: CGRect) -> 
 
     let visibleArea = intersection.width * intersection.height
     let visibleRatio = visibleArea / frameArea
+    if let minimumIntersectionSize,
+       (intersection.width < minimumIntersectionSize.width ||
+        intersection.height < minimumIntersectionSize.height) {
+        return false
+    }
     return visibleRatio >= 0.25 || (intersection.width >= 8 && intersection.height >= 12)
 }
 

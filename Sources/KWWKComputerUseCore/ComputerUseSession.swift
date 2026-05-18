@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 
 public final class ComputerUseSession: @unchecked Sendable {
@@ -15,7 +16,8 @@ public final class ComputerUseSession: @unchecked Sendable {
     private struct ActiveTarget {
         let pid: pid_t
         let windowNumber: Int
-        let activation: BackgroundActivationSession
+        var backgroundActivation: BackgroundActivationSession?
+        var backgroundActivated: Bool
 
         func matches(_ snapshot: RuntimeAppSnapshot) -> Bool {
             pid == snapshot.app.processIdentifier && windowNumber == snapshot.windowID
@@ -31,9 +33,14 @@ public final class ComputerUseSession: @unchecked Sendable {
     private var previousObservations: [ObservationKey: Observation] = [:]
     private var recentActions: [String] = []
     private var latestSnapshotMetadata: ComputerUseSnapshotMetadata?
+    private var frontmostObserver: FrontmostApplicationMonitor.ObserverToken?
     private var finished = false
 
-    public init() {}
+    public init() {
+        frontmostObserver = FrontmostApplicationMonitor.shared.observe { [weak self] pid in
+            self?.frontmostApplicationDidChange(pid: pid)
+        }
+    }
 
     public var visualEffectHook: ComputerUseVisualEffectHook? {
         get {
@@ -49,19 +56,26 @@ public final class ComputerUseSession: @unchecked Sendable {
     }
 
     public func finish() {
-        let result: (ActiveTarget?, ComputerUseVisualEffectHook?) = actionLock.withLock {
+        let result: (
+            ActiveTarget?,
+            ComputerUseVisualEffectHook?,
+            FrontmostApplicationMonitor.ObserverToken?
+        ) = actionLock.withLock {
             lock.withLock {
-                guard !finished else { return (nil, nil) }
+                guard !finished else { return (nil, nil, nil) }
                 finished = true
                 let target = activeTarget
                 let hook = visualEffectHookStorage
+                let observer = frontmostObserver
                 activeTarget = nil
                 visualEffectHookStorage = nil
-                return (target, hook)
+                frontmostObserver = nil
+                return (target, hook, observer)
             }
         }
         restoreAndFinish(result.0)
         result.1?.finish()
+        result.2?.cancel()
     }
 
     func visualEffectEvent(
@@ -92,13 +106,13 @@ public final class ComputerUseSession: @unchecked Sendable {
                     throw ComputerUseError.invalidArgument("computer use session is already finished")
                 }
 
-                let target = try activeTarget(matching: snapshot)
-                target.activation.beginTargetDelivery()
+                let (target, _) = try prepareTargetForAction(snapshot)
+                target.backgroundActivation?.beginTargetDelivery()
                 return (target, visualEffectHookStorage)
             }
 
             defer {
-                prepared.0.activation.holdFocusSuppressionUntilFinish()
+                prepared.0.backgroundActivation?.holdFocusSuppressionUntilFinish()
             }
 
             if let event, let hook = prepared.1 {
@@ -113,6 +127,22 @@ public final class ComputerUseSession: @unchecked Sendable {
         _ body: () throws -> T
     ) throws -> T {
         try performWithBackgroundActivation(on: snapshot, visualEffect: nil, body)
+    }
+
+    func prepareForSnapshotCapture(on snapshot: RuntimeAppSnapshot) throws -> Bool {
+        try actionLock.withLock {
+            try lock.withLock {
+                guard !finished else {
+                    throw ComputerUseError.invalidArgument("computer use session is already finished")
+                }
+
+                let (target, activated) = try prepareTargetForAction(snapshot)
+                if activated {
+                    target.backgroundActivation?.holdFocusSuppressionUntilFinish()
+                }
+                return activated
+            }
+        }
     }
 
     func recordAction(_ description: String) {
@@ -183,39 +213,151 @@ public final class ComputerUseSession: @unchecked Sendable {
         )
     }
 
-    private func activeTarget(matching snapshot: RuntimeAppSnapshot) throws -> ActiveTarget {
-        if let activeTarget, activeTarget.matches(snapshot) {
-            return activeTarget
+    private func prepareTargetForAction(_ snapshot: RuntimeAppSnapshot) throws -> (ActiveTarget, Bool) {
+        let appIsFrontmost = isTargetAppFrontmost(snapshot)
+
+        if var activeTarget, activeTarget.matches(snapshot) {
+            let activated = try prepareActivationIfNeeded(
+                for: snapshot,
+                target: &activeTarget,
+                appIsFrontmost: appIsFrontmost
+            )
+            self.activeTarget = activeTarget
+            return (activeTarget, activated)
         }
 
+        replaceActiveTarget(nil)
+
+        var activeTarget = ActiveTarget(
+            pid: snapshot.app.processIdentifier,
+            windowNumber: snapshot.windowID,
+            backgroundActivation: nil,
+            backgroundActivated: false
+        )
+        let activated = try prepareActivationIfNeeded(
+            for: snapshot,
+            target: &activeTarget,
+            appIsFrontmost: appIsFrontmost
+        )
+        self.activeTarget = activeTarget
+        return (activeTarget, activated)
+    }
+
+    private func replaceActiveTarget(_ next: ActiveTarget?) {
         let previousTarget = activeTarget
-        activeTarget = nil
+        activeTarget = next
         restoreAndFinish(previousTarget)
+    }
+
+    private func frontmostApplicationDidChange(pid: pid_t) {
+        let target = actionLock.withLock {
+            lock.withLock {
+                guard !finished,
+                      var activeTarget,
+                      activeTarget.pid == pid,
+                      activeTarget.backgroundActivation != nil
+                else {
+                    return nil as ActiveTarget?
+                }
+
+                let previousLease = activeTarget
+                activeTarget.backgroundActivation = nil
+                activeTarget.backgroundActivated = false
+                self.activeTarget = activeTarget
+                return previousLease
+            }
+        }
+
+        restoreAndFinish(target)
+    }
+
+    private func prepareActivationIfNeeded(
+        for snapshot: RuntimeAppSnapshot,
+        target: inout ActiveTarget,
+        appIsFrontmost: Bool
+    ) throws -> Bool {
+        let windowIsMain = isTargetWindowMain(snapshot)
+
+        if appIsFrontmost {
+            releaseBackgroundActivation(&target)
+            target.backgroundActivated = false
+        }
+
+        let needsActivation = if appIsFrontmost {
+            !windowIsMain
+        } else {
+            !target.backgroundActivated || !windowIsMain
+        }
+
+        guard needsActivation else { return false }
+
+        if appIsFrontmost {
+            BackgroundActivationSession.activateWindow(
+                targetPID: snapshot.app.processIdentifier,
+                windowNumber: snapshot.windowID,
+                windowFrame: snapshot.windowFrame
+            )
+        } else {
+            let activation = try ensureBackgroundActivation(for: snapshot, target: &target)
+            activation.activateWindow(
+                windowNumber: snapshot.windowID,
+                windowFrame: snapshot.windowFrame
+            )
+            target.backgroundActivated = true
+        }
+        return true
+    }
+
+    private func ensureBackgroundActivation(
+        for snapshot: RuntimeAppSnapshot,
+        target: inout ActiveTarget
+    ) throws -> BackgroundActivationSession {
+        if let activation = target.backgroundActivation {
+            return activation
+        }
 
         let activation = try BackgroundActivationSession.start(
             targetPID: snapshot.app.processIdentifier
         )
         activation.beginTargetDelivery()
-        activation.activateWindow(
-            windowNumber: snapshot.windowID,
-            windowFrame: snapshot.windowFrame
-        )
+        target.backgroundActivation = activation
+        return activation
+    }
 
-        let next = ActiveTarget(
-            pid: snapshot.app.processIdentifier,
-            windowNumber: snapshot.windowID,
-            activation: activation
-        )
-        activeTarget = next
-        return next
+    private func releaseBackgroundActivation(_ target: inout ActiveTarget) {
+        guard target.backgroundActivation != nil else { return }
+        let lease = target
+        target.backgroundActivation = nil
+        target.backgroundActivated = false
+        restoreAndFinish(lease)
+    }
+
+    private func isTargetAppFrontmost(_ snapshot: RuntimeAppSnapshot) -> Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == snapshot.app.processIdentifier
+    }
+
+    private func isTargetWindowMain(_ snapshot: RuntimeAppSnapshot) -> Bool {
+        if cuBoolAttribute(snapshot.windowElement, name: kAXMainAttribute as String) == true {
+            return true
+        }
+
+        if let mainWindow = cuAttribute(
+            snapshot.appElement,
+            name: kAXMainWindowAttribute as String
+        ) as AXUIElement?, CFEqual(mainWindow, snapshot.windowElement) {
+            return true
+        }
+
+        return false
     }
 
     private func restoreAndFinish(_ target: ActiveTarget?) {
         guard let target else { return }
-        target.activation.restoreBackgroundActivationIfNeeded(
+        guard let activation = target.backgroundActivation else { return }
+        activation.restoreBackgroundActivationIfNeeded(
             windowNumber: target.windowNumber
         )
-        target.activation.finish()
+        activation.finish()
     }
 }
 

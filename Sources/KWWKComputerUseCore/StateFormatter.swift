@@ -27,7 +27,8 @@ enum ComputerUseStateFormatter {
             ""
         }
 
-        let lines = snapshot.nodes.map(format(node:))
+        let lines = presentationRows(for: snapshot.nodes, focusedIndex: snapshot.focusedElementIndex)
+            .map { format(node: $0.node, displayDepth: $0.displayDepth) }
         return """
         App=\(snapshot.app.bundleIdentifier ?? appName) (pid \(snapshot.app.processIdentifier))
         Window: "\(snapshot.windowTitle)", App: \(appName).
@@ -35,8 +36,134 @@ enum ComputerUseStateFormatter {
         """
     }
 
-    private static func format(node: RuntimeAXNode) -> String {
-        let indent = String(repeating: "\t", count: node.depth)
+    private struct PresentationRow {
+        let node: RuntimeAXNode
+        let displayDepth: Int
+    }
+
+    private static func presentationRows(
+        for nodes: [RuntimeAXNode],
+        focusedIndex: Int?
+    ) -> [PresentationRow] {
+        var result: [PresentationRow] = []
+        var visibleDepthBySourceDepth: [Int: Int] = [:]
+        var lastVisibleAncestorBySourceDepth: [Int: RuntimeAXNode] = [:]
+        let singleCellRowCellIndexes = singleCellRowCellIndexes(in: nodes)
+
+        for node in nodes {
+            for staleDepth in Array(visibleDepthBySourceDepth.keys) where staleDepth >= node.depth {
+                visibleDepthBySourceDepth[staleDepth] = nil
+                lastVisibleAncestorBySourceDepth[staleDepth] = nil
+            }
+
+            let visibleAncestorDepth = nearestVisibleAncestorDepth(
+                forSourceDepth: node.depth,
+                visibleDepthBySourceDepth: visibleDepthBySourceDepth
+            )
+            let parentVisibleDepth = visibleAncestorDepth.map { visibleDepthBySourceDepth[$0] ?? -1 } ?? -1
+            let displayDepth = max(0, parentVisibleDepth + 1)
+            let parent = visibleAncestorDepth.flatMap { lastVisibleAncestorBySourceDepth[$0] }
+
+            if shouldPresent(
+                node,
+                focusedIndex: focusedIndex,
+                visibleParent: parent,
+                collapseSingleCell: singleCellRowCellIndexes.contains(node.index)
+            ) {
+                result.append(PresentationRow(node: node, displayDepth: displayDepth))
+                visibleDepthBySourceDepth[node.depth] = displayDepth
+                lastVisibleAncestorBySourceDepth[node.depth] = node
+            }
+        }
+
+        return result
+    }
+
+    private static func nearestVisibleAncestorDepth(
+        forSourceDepth sourceDepth: Int,
+        visibleDepthBySourceDepth: [Int: Int]
+    ) -> Int? {
+        guard sourceDepth > 0 else { return nil }
+        for depth in stride(from: sourceDepth - 1, through: 0, by: -1) {
+            if visibleDepthBySourceDepth[depth] != nil {
+                return depth
+            }
+        }
+        return nil
+    }
+
+    private static func shouldPresent(
+        _ node: RuntimeAXNode,
+        focusedIndex: Int?,
+        visibleParent: RuntimeAXNode?,
+        collapseSingleCell: Bool
+    ) -> Bool {
+        if node.depth == 0 ||
+            node.index == focusedIndex ||
+            node.focused == true ||
+            node.selected == true ||
+            node.isValueSettable {
+            return true
+        }
+
+        if collapseSingleCell {
+            return false
+        }
+
+        if isMenuRole(node.role) {
+            return true
+        }
+
+        if isTableStructureRole(node.role) {
+            return true
+        }
+
+        if isRedundantLeaf(node, visibleParent: visibleParent) {
+            return false
+        }
+
+        if isPrimaryControlRole(node.role) {
+            return hasDisplaySignal(node) || node.enabled != false
+        }
+
+        if isTextRole(node.role) {
+            return hasDisplaySignal(node)
+        }
+
+        if isImageRole(node.role) {
+            return hasStrongDisplaySignal(node)
+        }
+
+        if roleCanContainVisibleDescendants(node.role) {
+            return hasStrongDisplaySignal(node)
+        }
+
+        return hasDisplaySignal(node) || node.enabled == false || node.expanded != nil
+    }
+
+    private static func singleCellRowCellIndexes(in nodes: [RuntimeAXNode]) -> Set<Int> {
+        var result = Set<Int>()
+        for (position, node) in nodes.enumerated() where node.role == kAXRowRole as String {
+            var directCellIndexes: [Int] = []
+            var cursor = position + 1
+            while cursor < nodes.count, nodes[cursor].depth > node.depth {
+                let child = nodes[cursor]
+                if child.depth == node.depth + 1,
+                   child.role == kAXCellRole as String {
+                    directCellIndexes.append(child.index)
+                }
+                cursor += 1
+            }
+            if directCellIndexes.count == 1,
+               let index = directCellIndexes.first {
+                result.insert(index)
+            }
+        }
+        return result
+    }
+
+    private static func format(node: RuntimeAXNode, displayDepth: Int) -> String {
+        let indent = String(repeating: "\t", count: displayDepth)
         let stateDescription = describeStates(node)
         let primary = primaryLabel(for: node)
         let suffixParts = describeDetails(node, primaryLabel: primary)
@@ -44,6 +171,85 @@ enum ComputerUseStateFormatter {
         let label = displayLabel(for: node)
         let labelPart = [label, primary].filter { !$0.isEmpty }.joined(separator: " ")
         return "\(indent)\(node.index)\(labelPart.isEmpty ? "" : " \(labelPart)")\(stateDescription)\(suffix)"
+    }
+
+    private static let primaryControlRoles: Set<String> = [
+        kAXButtonRole as String,
+        kAXCheckBoxRole as String,
+        kAXRadioButtonRole as String,
+        kAXTextFieldRole as String,
+        kAXTextAreaRole as String,
+        kAXPopUpButtonRole as String,
+        kAXComboBoxRole as String,
+        kAXSliderRole as String,
+        kAXIncrementorRole as String,
+        kAXScrollBarRole as String,
+        "AXLink",
+        "AXMenuButton",
+    ]
+
+    private static func isPrimaryControlRole(_ role: String) -> Bool {
+        primaryControlRoles.contains(role)
+    }
+
+    private static func isTextRole(_ role: String) -> Bool {
+        role == kAXStaticTextRole as String ||
+            role == kAXHeadingRole as String
+    }
+
+    private static func isTextInputRole(_ role: String) -> Bool {
+        role == kAXTextFieldRole as String ||
+            role == kAXTextAreaRole as String
+    }
+
+    private static func isImageRole(_ role: String) -> Bool {
+        role == kAXImageRole as String
+    }
+
+    private static func isMenuRole(_ role: String) -> Bool {
+        role == kAXMenuBarRole as String ||
+            role == kAXMenuRole as String ||
+            role == kAXMenuItemRole as String ||
+            role == kAXMenuBarItemRole as String
+    }
+
+    private static func isTableStructureRole(_ role: String) -> Bool {
+        role == kAXRowRole as String ||
+            role == kAXCellRole as String ||
+            role == kAXColumnRole as String
+    }
+
+    private static func hasDisplaySignal(_ node: RuntimeAXNode) -> Bool {
+        primaryLabel(for: node).isEmpty == false ||
+            describeDetails(node, primaryLabel: "").isEmpty == false ||
+            node.enabled == false ||
+            node.expanded != nil
+    }
+
+    private static func hasStrongDisplaySignal(_ node: RuntimeAXNode) -> Bool {
+        primaryLabel(for: node).isEmpty == false ||
+            node.url != nil ||
+            meaningfulIdentifier(node.identifier) != nil ||
+            node.help.isEmpty == false ||
+            node.enabled == false ||
+            node.expanded != nil ||
+            node.collectionSummary != nil
+    }
+
+    private static func isRedundantLeaf(_ node: RuntimeAXNode, visibleParent: RuntimeAXNode?) -> Bool {
+        guard let visibleParent,
+              node.role == kAXStaticTextRole as String || node.role == kAXImageRole as String
+        else {
+            return false
+        }
+
+        let childLabel = normalizeDisplay(primaryLabel(for: node))
+        guard childLabel.isEmpty == false else {
+            return node.role == kAXImageRole as String
+        }
+
+        let parentLabel = normalizeDisplay(primaryLabel(for: visibleParent))
+        return parentLabel == childLabel || parentLabel.contains(childLabel)
     }
 
     private static func displayLabel(for node: RuntimeAXNode) -> String {

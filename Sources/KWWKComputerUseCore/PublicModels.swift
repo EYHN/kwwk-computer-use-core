@@ -174,7 +174,7 @@ public enum ComputerUseError: Error, CustomStringConvertible, LocalizedError {
         case let .screenshotUnavailable(windowID):
             return "screenshotUnavailable windowID=\(windowID)"
         case .coordinateActionRequiresScreenshot:
-            return "coordinateActionRequiresScreenshot: call get-app-state with include_screenshot=true before coordinate click/drag"
+            return "coordinateActionRequiresScreenshot: coordinate click/drag requires a prior screenshot state; use element_index or request state with screenshot support"
         case let .elementNotFound(index):
             return "elementNotFound \(index)"
         case let .elementFrameUnavailable(index):

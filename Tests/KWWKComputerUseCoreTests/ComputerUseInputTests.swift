@@ -34,6 +34,17 @@ struct ComputerUseInputTests {
         #expect(!cuFrameIsMeaningfullyVisible(nil, in: window))
     }
 
+    @Test("web visibility rejects one pixel clipped descendants")
+    func webVisibilityRejectsOnePixelClippedDescendants() {
+        let webArea = CGRect(x: 708, y: 501, width: 926, height: 780)
+        let clippedDescendant = CGRect(x: 990, y: 1280, width: 83, height: 1)
+        let visibleDescendant = CGRect(x: 732, y: 1006, width: 313, height: 19)
+
+        #expect(cuFrameIsMeaningfullyVisible(clippedDescendant, in: webArea))
+        #expect(!cuWebFrameIsMeaningfullyVisible(clippedDescendant, in: webArea))
+        #expect(cuWebFrameIsMeaningfullyVisible(visibleDescendant, in: webArea))
+    }
+
     @Test("structural roles may contain visible descendants")
     func structuralRolesMayContainVisibleDescendants() {
         #expect(roleCanContainVisibleDescendants(kAXGroupRole as String))
@@ -238,6 +249,121 @@ struct ComputerUseInputTests {
 
         #expect(output.contains("[truncated"))
         #expect(output.count < 4_000)
+    }
+
+    @Test("formatted state omits uninformative structural nodes")
+    func formattedStateOmitsUninformativeStructuralNodes() {
+        let metadata = makeHarnessMetadata(
+            id: "snapshot-pruned",
+            signatures: [
+                signature(role: kAXWindowRole as String, title: "Main"),
+            ]
+        )
+        let snapshot = RuntimeAppSnapshot(
+            app: NSRunningApplication.current,
+            appElement: AXUIElementCreateSystemWide(),
+            windowElement: AXUIElementCreateSystemWide(),
+            windowID: metadata.windowID,
+            windowTitle: metadata.windowTitle,
+            windowFrame: CGRect(x: 0, y: 0, width: 400, height: 300),
+            nodes: [
+                runtimeNode(index: 0, depth: 0, role: kAXWindowRole as String, title: "Main"),
+                runtimeNode(index: 1, depth: 1, role: kAXGroupRole as String),
+                runtimeNode(index: 2, depth: 2, role: kAXImageRole as String),
+                runtimeNode(index: 3, depth: 2, role: kAXButtonRole as String, title: "Run"),
+                runtimeNode(index: 4, depth: 2, role: "AXLink", title: "Docs"),
+                runtimeNode(index: 5, depth: 2, role: kAXStaticTextRole as String, title: "Status"),
+            ],
+            focusedElementIndex: nil,
+            selectedText: nil,
+            screenshotURL: nil,
+            screenshotSize: nil,
+            fingerprint: metadata.fingerprint
+        )
+
+        let output = ComputerUseStateFormatter.format(snapshot: snapshot)
+
+        #expect(!output.contains("\n\t1 group"))
+        #expect(!output.contains("\n\t2 image"))
+        #expect(output.contains("\n\t3 button Run"))
+        #expect(output.contains("\n\t4 link Docs"))
+        #expect(output.contains("\n\t5 text Status"))
+    }
+
+    @Test("formatted state does not inherit visible parent from collapsed sibling")
+    func formattedStateDoesNotInheritVisibleParentFromCollapsedSibling() {
+        let metadata = makeHarnessMetadata(
+            id: "snapshot-collapsed-sibling",
+            signatures: [
+                signature(role: kAXWindowRole as String, title: "Main"),
+            ]
+        )
+        let snapshot = RuntimeAppSnapshot(
+            app: NSRunningApplication.current,
+            appElement: AXUIElementCreateSystemWide(),
+            windowElement: AXUIElementCreateSystemWide(),
+            windowID: metadata.windowID,
+            windowTitle: metadata.windowTitle,
+            windowFrame: CGRect(x: 0, y: 0, width: 400, height: 300),
+            nodes: [
+                runtimeNode(index: 0, depth: 0, role: kAXWindowRole as String, title: "Main"),
+                runtimeNode(index: 1, depth: 1, role: kAXButtonRole as String, title: "Run"),
+                runtimeNode(index: 2, depth: 1, role: kAXGroupRole as String),
+                runtimeNode(index: 3, depth: 2, role: kAXStaticTextRole as String, title: "Run"),
+            ],
+            focusedElementIndex: nil,
+            selectedText: nil,
+            screenshotURL: nil,
+            screenshotSize: nil,
+            fingerprint: metadata.fingerprint
+        )
+
+        let output = ComputerUseStateFormatter.format(snapshot: snapshot)
+
+        #expect(output.contains("\n\t1 button Run"))
+        #expect(!output.contains("\n\t2 group"))
+        #expect(output.contains("\n\t3 text Run"))
+    }
+
+    @Test("formatted state keeps nested children of collapsed single cell under row")
+    func formattedStateKeepsNestedChildrenOfCollapsedSingleCellUnderRow() {
+        let metadata = makeHarnessMetadata(
+            id: "snapshot-single-cell-nested-child",
+            signatures: [
+                signature(role: kAXWindowRole as String, title: "Main"),
+            ]
+        )
+        let snapshot = RuntimeAppSnapshot(
+            app: NSRunningApplication.current,
+            appElement: AXUIElementCreateSystemWide(),
+            windowElement: AXUIElementCreateSystemWide(),
+            windowID: metadata.windowID,
+            windowTitle: metadata.windowTitle,
+            windowFrame: CGRect(x: 0, y: 0, width: 400, height: 300),
+            nodes: [
+                runtimeNode(index: 0, depth: 0, role: kAXWindowRole as String, title: "Main"),
+                runtimeNode(index: 1, depth: 1, role: kAXRowRole as String),
+                runtimeNode(index: 2, depth: 2, role: kAXCellRole as String),
+                runtimeNode(index: 3, depth: 3, role: kAXStaticTextRole as String, title: "Nested"),
+                runtimeNode(index: 4, depth: 1, role: kAXRowRole as String),
+                runtimeNode(index: 5, depth: 2, role: kAXCellRole as String, title: "Name"),
+                runtimeNode(index: 6, depth: 2, role: kAXCellRole as String, title: "Value"),
+            ],
+            focusedElementIndex: nil,
+            selectedText: nil,
+            screenshotURL: nil,
+            screenshotSize: nil,
+            fingerprint: metadata.fingerprint
+        )
+
+        let output = ComputerUseStateFormatter.format(snapshot: snapshot)
+
+        #expect(output.contains("\n\t1 row"))
+        #expect(!output.contains("\n\t\t2 cell"))
+        #expect(output.contains("\n\t\t3 text Nested"))
+        #expect(output.contains("\n\t4 row"))
+        #expect(output.contains("\n\t\t5 cell Name"))
+        #expect(output.contains("\n\t\t6 cell Value"))
     }
 }
 
