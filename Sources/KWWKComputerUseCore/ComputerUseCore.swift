@@ -99,20 +99,24 @@ struct WindowSelection {
     var windowID: Int? = nil
 }
 
-private final class MainAXReadOperation<T>: @unchecked Sendable {
-    private let body: () -> T
-    var result: T?
-
-    init(_ body: @escaping () -> T) {
-        self.body = body
-    }
-
-    func run() {
-        result = body()
-    }
-}
-
 enum ComputerUseCore {
+    private typealias ResolvedWindowMatch = (
+        element: AXUIElement,
+        title: String,
+        frame: CGRect,
+        cgWindow: CUWindowSnapshot
+    )
+
+    private struct SnapshotSurfaceScan {
+        let appElement: AXUIElement
+        let focusedElement: AXUIElement?
+        let selectedText: String?
+        let statusMenuExtras: [AXUIElement]
+        let transientMenuWindowFrame: CGRect?
+        let windowMatch: ResolvedWindowMatch?
+        let windowResolutionError: ComputerUseError?
+    }
+
     static func startupInventoryText() -> String {
         let apps = listRunningApps()
         guard apps.isEmpty == false else {
@@ -442,48 +446,67 @@ enum ComputerUseCore {
         preferredWindowFrame: CGRect? = nil,
         filterVisibleNodes: Bool = true
     ) throws -> RuntimeAppSnapshot {
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        ChromiumAccessibilityActivation.shared.activateIfNeeded(
-            pid: app.processIdentifier,
-            root: appElement
-        )
-        let focusedElement = cuAttribute(
-            appElement,
-            name: kAXFocusedUIElementAttribute as String
-        ) as AXUIElement?
+        try runAXRead {
+            Result {
+                try captureSnapshotOnAXReadQueue(
+                    app: app,
+                    selection: selection,
+                    includeScreenshot: includeScreenshot,
+                    screenshotCompression: screenshotCompression,
+                    preferredWindowID: preferredWindowID,
+                    preferredWindowFrame: preferredWindowFrame,
+                    filterVisibleNodes: filterVisibleNodes
+                )
+            }
+        }.get()
+    }
 
-        let windowMatch: (element: AXUIElement, title: String, frame: CGRect, cgWindow: CUWindowSnapshot)
-        do {
-            windowMatch = try resolveWindow(
-                in: appElement,
-                app: app,
-                titleSubstring: selection.titleSubstring,
-                preferredWindowID: selection.windowID ?? preferredWindowID,
-                preferredWindowFrame: preferredWindowFrame,
-                requirePreferredWindowID: selection.windowID != nil
-            )
-        } catch let error as ComputerUseError {
-            guard case .windowNotFound = error,
+    private static func captureSnapshotOnAXReadQueue(
+        app: NSRunningApplication,
+        selection: WindowSelection,
+        includeScreenshot: Bool,
+        screenshotCompression: ComputerUseScreenshotCompression,
+        preferredWindowID: Int?,
+        preferredWindowFrame: CGRect?,
+        filterVisibleNodes: Bool
+    ) throws -> RuntimeAppSnapshot {
+        let scan = try scanSnapshotSurface(
+            app: app,
+            selection: selection,
+            preferredWindowID: preferredWindowID,
+            preferredWindowFrame: preferredWindowFrame
+        )
+        guard let windowMatch = scan.windowMatch else {
+            guard let error = scan.windowResolutionError,
+                  case .windowNotFound = error,
                   selection.titleSubstring == nil,
                   selection.windowID == nil,
                   preferredWindowID == nil,
                   let statusSnapshot = statusSurfaceSnapshot(
                     app: app,
-                    appElement: appElement,
-                    focusedElement: focusedElement,
+                    appElement: scan.appElement,
+                    focusedElement: scan.focusedElement,
+                    selectedText: scan.selectedText,
+                    statusMenuExtras: scan.statusMenuExtras,
                     filterVisibleNodes: filterVisibleNodes
                   )
             else {
-                throw error
+                throw scan.windowResolutionError ?? ComputerUseError.windowNotFound(
+                    app: app.localizedName ?? app.bundleIdentifier ?? "Unknown",
+                    title: selection.titleSubstring
+                )
             }
             return statusSnapshot
         }
 
         if let menuSnapshot = menuSurfaceSnapshot(
             app: app,
-            appElement: appElement,
+            appElement: scan.appElement,
             windowMatch: windowMatch,
-            focusedElement: focusedElement,
+            focusedElement: scan.focusedElement,
+            selectedText: scan.selectedText,
+            statusMenuExtras: scan.statusMenuExtras,
+            transientMenuWindowFrame: scan.transientMenuWindowFrame,
             filterVisibleNodes: filterVisibleNodes
         ) {
             return menuSnapshot
@@ -491,14 +514,14 @@ enum ComputerUseCore {
 
         var nodes = flattenTree(
             from: windowMatch.element,
-            focusedElement: focusedElement,
+            focusedElement: scan.focusedElement,
             visibleFrame: windowMatch.frame,
             filterVisibleNodes: filterVisibleNodes
         )
         nodes.append(contentsOf: reindexedNodes(
             menuBarNodes(
-                appElement: appElement,
-                focusedElement: focusedElement,
+                appElement: scan.appElement,
+                focusedElement: scan.focusedElement,
                 fallbackFrame: windowMatch.frame,
                 filterVisibleNodes: filterVisibleNodes
             ),
@@ -506,20 +529,16 @@ enum ComputerUseCore {
         ))
         nodes.append(contentsOf: reindexedNodes(
             statusMenuExtraNodes(
-                appElement: appElement,
-                focusedElement: focusedElement,
+                statusMenuExtras: scan.statusMenuExtras,
+                focusedElement: scan.focusedElement,
                 fallbackFrame: windowMatch.frame,
                 filterVisibleNodes: filterVisibleNodes
             ),
             startingAt: nodes.count
         ))
 
-        let focusedIndex = focusedElement.flatMap { focused in
+        let focusedIndex = scan.focusedElement.flatMap { focused in
             nodes.first(where: { CFEqual($0.element, focused) })?.index
-        }
-
-        let selectedText = focusedElement.flatMap {
-            cuAttribute($0, name: kAXSelectedTextAttribute as String) as String?
         }
 
         let screenshotCapture = includeScreenshot
@@ -536,12 +555,12 @@ enum ComputerUseCore {
             windowFrame: windowMatch.frame,
             nodes: nodes,
             focusedElementIndex: focusedIndex,
-            selectedText: selectedText
+            selectedText: scan.selectedText
         )
 
         return RuntimeAppSnapshot(
             app: app,
-            appElement: appElement,
+            appElement: scan.appElement,
             windowElement: windowMatch.element,
             surfaceKind: .window,
             windowID: windowMatch.cgWindow.windowID,
@@ -549,40 +568,158 @@ enum ComputerUseCore {
             windowFrame: windowMatch.frame,
             nodes: nodes,
             focusedElementIndex: focusedIndex,
-            selectedText: selectedText,
+            selectedText: scan.selectedText,
             screenshotURL: screenshotCapture?.url,
             screenshotSize: screenshotCapture?.size,
             fingerprint: fingerprint
         )
     }
 
-    private static func runMainAXRead<T>(_ body: @escaping () -> T) -> T {
-        if Thread.isMainThread {
-            return body()
+    private static func scanSnapshotSurface(
+        app: NSRunningApplication,
+        selection: WindowSelection,
+        preferredWindowID: Int?,
+        preferredWindowFrame: CGRect?
+    ) throws -> SnapshotSurfaceScan {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        ChromiumAccessibilityActivation.shared.activateIfNeeded(
+            pid: app.processIdentifier,
+            root: appElement
+        )
+        let focusedElement = cuAttribute(
+            appElement,
+            name: kAXFocusedUIElementAttribute as String
+        ) as AXUIElement?
+        let selectedText = focusedElement.flatMap {
+            cuAttribute($0, name: kAXSelectedTextAttribute as String) as String?
+        }
+        let statusMenuExtras = statusMenuExtraCandidates(in: appElement)
+        let transientMenuWindowFrame = transientMenuWindowFrame(for: app.processIdentifier)
+
+        do {
+            let windowMatch = try resolveWindow(
+                in: appElement,
+                app: app,
+                titleSubstring: selection.titleSubstring,
+                preferredWindowID: selection.windowID ?? preferredWindowID,
+                preferredWindowFrame: preferredWindowFrame,
+                requirePreferredWindowID: selection.windowID != nil
+            )
+            return SnapshotSurfaceScan(
+                appElement: appElement,
+                focusedElement: focusedElement,
+                selectedText: selectedText,
+                statusMenuExtras: statusMenuExtras,
+                transientMenuWindowFrame: transientMenuWindowFrame,
+                windowMatch: windowMatch,
+                windowResolutionError: nil
+            )
+        } catch let error as ComputerUseError {
+            return SnapshotSurfaceScan(
+                appElement: appElement,
+                focusedElement: focusedElement,
+                selectedText: selectedText,
+                statusMenuExtras: statusMenuExtras,
+                transientMenuWindowFrame: transientMenuWindowFrame,
+                windowMatch: nil,
+                windowResolutionError: error
+            )
+        }
+    }
+
+    static func runAXRead<T>(_ body: @escaping () -> T) -> T {
+        body()
+    }
+
+    private static func transientMenuWindowFrame(for pid: pid_t) -> CGRect? {
+        let popupMenuLevel = CGWindowLevelForKey(.popUpMenuWindow)
+        guard let windows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]]
+        else {
+            return nil
         }
 
-        let operation = MainAXReadOperation(body)
-        DispatchQueue.main.sync {
-            operation.run()
+        for window in windows {
+            let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t ?? 0
+            let layer = window[kCGWindowLayer as String] as? Int ?? 0
+            guard ownerPID == pid, layer == popupMenuLevel else {
+                continue
+            }
+            guard let rawBounds = window[kCGWindowBounds as String] as? [String: CGFloat] else {
+                continue
+            }
+            let frame = CGRect(
+                x: rawBounds["X"] ?? 0,
+                y: rawBounds["Y"] ?? 0,
+                width: rawBounds["Width"] ?? 0,
+                height: rawBounds["Height"] ?? 0
+            )
+            guard frame.width > 0, frame.height > 0 else {
+                continue
+            }
+            return frame
         }
-        return operation.result!
+
+        return nil
     }
 
     private static func menuSurfaceSnapshot(
         app: NSRunningApplication,
         appElement: AXUIElement,
-        windowMatch: (element: AXUIElement, title: String, frame: CGRect, cgWindow: CUWindowSnapshot),
+        windowMatch: ResolvedWindowMatch,
         focusedElement: AXUIElement?,
+        selectedText: String?,
+        statusMenuExtras: [AXUIElement],
+        transientMenuWindowFrame: CGRect?,
         filterVisibleNodes: Bool
     ) -> RuntimeAppSnapshot? {
-        runMainAXRead {
-            guard let popupMenu = activeMenuBarItemCandidate(in: appElement) ??
-                activeStatusMenuItemCandidate(in: appElement) ??
-                popupMenuCandidate(in: appElement)
-            else {
-                return nil
+        runAXRead {
+            if let menuWindowFrame = transientMenuWindowFrame {
+                let roots = [appElement, windowMatch.element] + cuElements(from: focusedElement)
+                if let popupMenu = popupMenuCandidate(
+                    near: roots,
+                    requireVisibleItems: false,
+                    matching: menuWindowFrame
+                ) {
+                    return menuSurfaceSnapshot(
+                        app: app,
+                        appElement: appElement,
+                        windowMatch: windowMatch,
+                        focusedElement: focusedElement,
+                        selectedText: selectedText,
+                        popupMenu: PopupMenuCandidate(element: popupMenu.element, frame: menuWindowFrame),
+                        filterVisibleNodes: false
+                    )
+                }
             }
 
+            if let popupMenu = activeMenuBarItemCandidate(in: appElement) ??
+                activeStatusMenuItemCandidate(in: statusMenuExtras) {
+                return menuSurfaceSnapshot(
+                    app: app,
+                    appElement: appElement,
+                    windowMatch: windowMatch,
+                    focusedElement: focusedElement,
+                    selectedText: selectedText,
+                    popupMenu: popupMenu,
+                    filterVisibleNodes: filterVisibleNodes
+                )
+            }
+            return nil
+        }
+    }
+
+    private static func menuSurfaceSnapshot(
+        app: NSRunningApplication,
+        appElement: AXUIElement,
+        windowMatch: ResolvedWindowMatch,
+        focusedElement: AXUIElement?,
+        selectedText: String?,
+        popupMenu: PopupMenuCandidate,
+        filterVisibleNodes: Bool
+    ) -> RuntimeAppSnapshot? {
             let nodes = flattenTree(
                 from: popupMenu.element,
                 focusedElement: focusedElement,
@@ -591,9 +728,6 @@ enum ComputerUseCore {
             )
             let focusedIndex = focusedElement.flatMap { focused in
                 nodes.first(where: { CFEqual($0.element, focused) })?.index
-            }
-            let selectedText = focusedElement.flatMap {
-                cuAttribute($0, name: kAXSelectedTextAttribute as String) as String?
             }
             let fingerprint = fingerprint(
                 app: app,
@@ -620,7 +754,6 @@ enum ComputerUseCore {
                 screenshotSize: nil,
                 fingerprint: fingerprint
             )
-        }
     }
 
     private static func menuBarNodes(
@@ -629,7 +762,7 @@ enum ComputerUseCore {
         fallbackFrame: CGRect,
         filterVisibleNodes: Bool
     ) -> [RuntimeAXNode] {
-        runMainAXRead {
+        runAXRead {
             guard let menuBar = cuAttribute(appElement, name: kAXMenuBarAttribute as String) as AXUIElement? else {
                 return []
             }
@@ -645,14 +778,14 @@ enum ComputerUseCore {
     }
 
     private static func statusMenuExtraNodes(
-        appElement: AXUIElement,
+        statusMenuExtras: [AXUIElement],
         focusedElement: AXUIElement?,
         fallbackFrame: CGRect,
         filterVisibleNodes: Bool
     ) -> [RuntimeAXNode] {
-        runMainAXRead {
+        runAXRead {
             var nodes: [RuntimeAXNode] = []
-            for statusItem in statusMenuExtraCandidates(in: appElement) {
+            for statusItem in statusMenuExtras {
                 nodes.append(contentsOf: reindexedNodes(
                     flattenTree(
                         from: statusItem,
@@ -672,24 +805,16 @@ enum ComputerUseCore {
         app: NSRunningApplication,
         appElement: AXUIElement,
         focusedElement: AXUIElement?,
+        selectedText: String?,
+        statusMenuExtras: [AXUIElement],
         filterVisibleNodes: Bool
     ) -> RuntimeAppSnapshot? {
-        if !Thread.isMainThread {
-            return runMainAXRead {
-                statusSurfaceSnapshot(
-                    app: app,
-                    appElement: appElement,
-                    focusedElement: focusedElement,
-                    filterVisibleNodes: filterVisibleNodes
-                )
-            }
-        }
-
-        if let popupMenu = activeStatusMenuItemCandidate(in: appElement) {
+        if let popupMenu = activeStatusMenuItemCandidate(in: statusMenuExtras) {
             return statusSurfaceSnapshot(
                 app: app,
                 appElement: appElement,
                 focusedElement: focusedElement,
+                selectedText: selectedText,
                 rootElement: popupMenu.element,
                 surfaceKind: .menu,
                 title: "Status Menu",
@@ -698,7 +823,7 @@ enum ComputerUseCore {
             )
         }
 
-        let statusItems = statusMenuExtraCandidates(in: appElement)
+        let statusItems = statusMenuExtras
         guard let firstStatusItem = statusItems.first else {
             return nil
         }
@@ -727,6 +852,7 @@ enum ComputerUseCore {
             app: app,
             appElement: appElement,
             focusedElement: focusedElement,
+            selectedText: selectedText,
             rootElement: firstStatusItem,
             surfaceKind: .status,
             title: "Status Items",
@@ -740,6 +866,7 @@ enum ComputerUseCore {
         app: NSRunningApplication,
         appElement: AXUIElement,
         focusedElement: AXUIElement?,
+        selectedText: String?,
         rootElement: AXUIElement,
         surfaceKind: RuntimeSurfaceKind,
         title: String,
@@ -755,9 +882,6 @@ enum ComputerUseCore {
         )
         let focusedIndex = focusedElement.flatMap { focused in
             nodes.first(where: { CFEqual($0.element, focused) })?.index
-        }
-        let selectedText = focusedElement.flatMap {
-            cuAttribute($0, name: kAXSelectedTextAttribute as String) as String?
         }
         let windowID = statusSurfaceWindowID(app: app, frame: frame)
         let fingerprint = fingerprint(

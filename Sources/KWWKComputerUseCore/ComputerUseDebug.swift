@@ -1,19 +1,14 @@
 import Foundation
 
 public enum ComputerUseDebug {
-    private final class State: @unchecked Sendable {
-        let lock = NSLock()
-        var focusEnabled = environmentBool("KWWK_COMPUTER_USE_CORE_DEBUG_FOCUS")
-    }
-
-    private static let state = State()
+    nonisolated(unsafe) private static var focusEnabledStorage = environmentBool("KWWK_COMPUTER_USE_CORE_DEBUG_FOCUS")
 
     public static var focusEnabled: Bool {
         get {
-            state.lock.withLock { state.focusEnabled }
+            focusEnabledStorage
         }
         set {
-            state.lock.withLock { state.focusEnabled = newValue }
+            focusEnabledStorage = newValue
         }
     }
 }

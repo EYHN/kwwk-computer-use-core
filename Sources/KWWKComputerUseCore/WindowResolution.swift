@@ -18,23 +18,25 @@ extension ComputerUseCore {
         }
 
         let app = try resolveRunningApplication(matching: appIdentifier)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        ChromiumAccessibilityActivation.shared.activateIfNeeded(
-            pid: app.processIdentifier,
-            root: appElement
-        )
-
         let appName = app.localizedName ?? app.bundleIdentifier ?? "Unknown"
         let bundleID = app.bundleIdentifier ?? ""
-        return windowCandidates(in: appElement, app: app).map { candidate in
-            ComputerUseWindowDescriptor(
-                appName: appName,
-                bundleID: bundleID,
+        return runAXRead {
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            ChromiumAccessibilityActivation.shared.activateIfNeeded(
                 pid: app.processIdentifier,
-                windowID: candidate.cgWindow.windowID,
-                title: candidate.title,
-                isMain: candidate.isMain
+                root: appElement
             )
+
+            return windowCandidates(in: appElement, app: app).map { candidate in
+                ComputerUseWindowDescriptor(
+                    appName: appName,
+                    bundleID: bundleID,
+                    pid: app.processIdentifier,
+                    windowID: candidate.cgWindow.windowID,
+                    title: candidate.title,
+                    isMain: candidate.isMain
+                )
+            }
         }
     }
 

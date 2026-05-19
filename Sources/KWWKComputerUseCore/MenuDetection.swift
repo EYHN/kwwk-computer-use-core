@@ -7,9 +7,24 @@ struct PopupMenuCandidate {
 }
 
 extension ComputerUseCore {
+    /// Status menu extras only appear directly under a menu bar (depth 2 from the app root).
+    private static let statusMenuExtraMaxDepth = 2
+
+    static func statusMenuExtraCandidates(in appElement: AXUIElement) -> [AXUIElement] {
+        collectStatusMenuExtras(in: appElement)
+    }
+
     static func popupMenuCandidate(in appElement: AXUIElement) -> PopupMenuCandidate? {
         let roots = cuElements(from: cuRawAttribute(appElement, name: kAXFocusedWindowAttribute as String)) +
             cuElements(from: cuRawAttribute(appElement, name: kAXFocusedUIElementAttribute as String))
+        return popupMenuCandidate(near: roots)
+    }
+
+    static func popupMenuCandidate(
+        near roots: [AXUIElement],
+        requireVisibleItems: Bool = true,
+        matching targetFrame: CGRect? = nil
+    ) -> PopupMenuCandidate? {
         var stack = roots
         var visited = Set<CFHashCode>()
         var best: PopupMenuCandidate?
@@ -24,15 +39,23 @@ extension ComputerUseCore {
             let role = cuAttribute(element, name: kAXRoleAttribute as String) as String? ?? ""
             if role == (kAXMenuRole as String),
                let frame = cuFrame(element),
-               popupMenuHasItems(element),
-               isTransientPopupMenu(element) {
+               (requireVisibleItems ? popupMenuHasVisibleItems(element) : popupMenuHasItems(element)),
+               (matchesTargetFrame(frame, targetFrame) || isTransientPopupMenu(element)) {
                 let candidate = PopupMenuCandidate(element: element, frame: frame)
-                if best == nil || menuItemCount(in: element) > menuItemCount(in: best!.element) {
+                if best == nil ||
+                    isBetterPopupMenuCandidate(
+                        candidateFrame: frame,
+                        candidate: element,
+                        currentFrame: best!.frame,
+                        current: best!.element,
+                        requireVisibleItems: requireVisibleItems,
+                        targetFrame: targetFrame
+                    ) {
                     best = candidate
                 }
             }
 
-            stack.append(contentsOf: cuChildElements(element))
+            stack.append(contentsOf: popupMenuSearchChildren(element))
         }
 
         return best
@@ -53,7 +76,7 @@ extension ComputerUseCore {
                 let role = cuAttribute(child, name: kAXRoleAttribute as String) as String? ?? ""
                 return role == (kAXMenuRole as String) && popupMenuHasItems(child)
             }
-            guard menus.isEmpty == false else {
+            guard menus.contains(where: popupMenuHasVisibleItems) else {
                 continue
             }
             let frames = ([cuFrame(item)] + menus.map(cuFrame)).compactMap { $0 }
@@ -69,7 +92,11 @@ extension ComputerUseCore {
     }
 
     static func activeStatusMenuItemCandidate(in appElement: AXUIElement) -> PopupMenuCandidate? {
-        for item in statusMenuExtraCandidates(in: appElement) {
+        activeStatusMenuItemCandidate(in: statusMenuExtraCandidates(in: appElement))
+    }
+
+    static func activeStatusMenuItemCandidate(in statusMenuExtras: [AXUIElement]) -> PopupMenuCandidate? {
+        for item in statusMenuExtras {
             let menus = cuChildElements(item).filter { child in
                 let role = cuAttribute(child, name: kAXRoleAttribute as String) as String? ?? ""
                 return role == (kAXMenuRole as String) && popupMenuHasItems(child)
@@ -78,9 +105,7 @@ extension ComputerUseCore {
                 continue
             }
 
-            let hasVisibleMenu = menus.contains {
-                cuElements(from: cuRawAttribute($0, name: "AXVisibleChildren")).isEmpty == false
-            }
+            let hasVisibleMenu = menus.contains(where: popupMenuHasVisibleItems)
             let isActive = cuBoolAttribute(item, name: kAXSelectedAttribute as String) == true ||
                 cuBoolAttribute(item, name: kAXFocusedAttribute as String) == true ||
                 hasVisibleMenu
@@ -100,12 +125,12 @@ extension ComputerUseCore {
         return nil
     }
 
-    static func statusMenuExtraCandidates(in appElement: AXUIElement) -> [AXUIElement] {
-        var stack = [appElement]
+    private static func collectStatusMenuExtras(in appElement: AXUIElement) -> [AXUIElement] {
+        var stack: [(AXUIElement, Int)] = [(appElement, 0)]
         var visited = Set<CFHashCode>()
         var result: [AXUIElement] = []
 
-        while let element = stack.popLast() {
+        while let (element, depth) = stack.popLast() {
             let identifier = CFHash(element)
             if visited.contains(identifier) {
                 continue
@@ -124,7 +149,13 @@ extension ComputerUseCore {
                 continue
             }
 
-            stack.append(contentsOf: cuChildElements(element))
+            guard depth < statusMenuExtraMaxDepth else {
+                continue
+            }
+
+            for child in cuChildElements(element) {
+                stack.append((child, depth + 1))
+            }
         }
 
         return result
@@ -162,6 +193,63 @@ extension ComputerUseCore {
 
     private static func popupMenuHasItems(_ menu: AXUIElement) -> Bool {
         menuItemCount(in: menu) > 0
+    }
+
+    private static func matchesTargetFrame(_ frame: CGRect, _ targetFrame: CGRect?) -> Bool {
+        guard let targetFrame else {
+            return false
+        }
+        return frameDistance(frame, targetFrame) == 0
+    }
+
+    private static func popupMenuSearchChildren(_ element: AXUIElement) -> [AXUIElement] {
+        cuChildElements(element) + cuElements(from: cuRawAttribute(element, name: "AXMenu"))
+    }
+
+    private static func isBetterPopupMenuCandidate(
+        candidateFrame: CGRect,
+        candidate: AXUIElement,
+        currentFrame: CGRect,
+        current: AXUIElement,
+        requireVisibleItems: Bool,
+        targetFrame: CGRect?
+    ) -> Bool {
+        if let targetFrame {
+            let candidateDistance = frameDistance(candidateFrame, targetFrame)
+            let currentDistance = frameDistance(currentFrame, targetFrame)
+            if candidateDistance != currentDistance {
+                return candidateDistance < currentDistance
+            }
+        }
+
+        let candidateCount = menuItemCount(in: candidate)
+        let currentCount = menuItemCount(in: current)
+        if requireVisibleItems {
+            return candidateCount > currentCount
+        }
+        return candidateCount < currentCount
+    }
+
+    private static func frameDistance(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        if lhs.intersects(rhs) {
+            return 0
+        }
+        return hypot(lhs.midX - rhs.midX, lhs.midY - rhs.midY)
+    }
+
+    private static func popupMenuHasVisibleItems(_ menu: AXUIElement) -> Bool {
+        guard let rawVisibleChildren = cuRawAttribute(menu, name: "AXVisibleChildren") else {
+            return popupMenuHasItems(menu)
+        }
+
+        let visibleChildren = cuElements(from: rawVisibleChildren)
+        guard visibleChildren.isEmpty == false else {
+            return false
+        }
+        return visibleChildren.contains { child in
+            let role = cuAttribute(child, name: kAXRoleAttribute as String) as String? ?? ""
+            return role == (kAXMenuItemRole as String) || !cuTitle(child).isEmpty || !cuDescription(child).isEmpty
+        }
     }
 
     private static func menuItemCount(in menu: AXUIElement) -> Int {

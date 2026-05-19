@@ -280,15 +280,17 @@ extension ComputerUseAction {
         let wantsIncrement = canonical == "down" || canonical == "right"
         let action = wantsIncrement ? (kAXIncrementAction as String) : (kAXDecrementAction as String)
         let roots = [element, fallbackRoot]
-        let foundScrollBars = roots.flatMap { scrollBars(in: $0) }
-        let matching = foundScrollBars.filter { bar in
-            guard let orientation = cuAttribute(bar, name: kAXOrientationAttribute as String) as String? else {
-                return true
+        let matching = ComputerUseCore.runAXRead {
+            let foundScrollBars = roots.flatMap { scrollBars(in: $0) }
+            return foundScrollBars.filter { bar in
+                guard let orientation = cuAttribute(bar, name: kAXOrientationAttribute as String) as String? else {
+                    return true
+                }
+                if wantsVertical {
+                    return orientation == (kAXVerticalOrientationValue as String)
+                }
+                return orientation == (kAXHorizontalOrientationValue as String)
             }
-            if wantsVertical {
-                return orientation == (kAXVerticalOrientationValue as String)
-            }
-            return orientation == (kAXHorizontalOrientationValue as String)
         }
 
         let repetitions = max(1, Int((max(0.05, pages) * 3).rounded(.up)))
@@ -304,7 +306,7 @@ extension ComputerUseAction {
                 return true
             }
 
-            if setScrollBarValue(bar, increment: wantsIncrement, pages: pages) {
+            if ComputerUseCore.runAXRead({ setScrollBarValue(bar, increment: wantsIncrement, pages: pages) }) {
                 return true
             }
         }

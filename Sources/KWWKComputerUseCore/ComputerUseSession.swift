@@ -24,8 +24,7 @@ public final class ComputerUseSession: @unchecked Sendable {
         }
     }
 
-    private let lock = NSLock()
-    private let actionLock = NSLock()
+    private let stateQueue = DispatchQueue(label: "com.kwwk.computer-use.session")
     private var activeTarget: ActiveTarget?
     private var visualEffectHookStorage: ComputerUseVisualEffectHook?
     private var observationSequence = 0
@@ -45,38 +44,23 @@ public final class ComputerUseSession: @unchecked Sendable {
 
     public var visualEffectHook: ComputerUseVisualEffectHook? {
         get {
-            lock.withLock { visualEffectHookStorage }
+            stateQueue.sync { visualEffectHookStorage }
         }
         set {
-            lock.withLock { visualEffectHookStorage = newValue }
+            stateQueue.sync { visualEffectHookStorage = newValue }
         }
     }
 
     deinit {
-        finish(allowMainThreadDeferral: false)
+        finish()
     }
 
     public func finish() {
-        finish(allowMainThreadDeferral: true)
-    }
-
-    private func finish(allowMainThreadDeferral: Bool) {
-        if Thread.isMainThread, allowMainThreadDeferral, !actionLock.try() {
-            DispatchQueue.global(qos: .utility).async { [self] in
-                finish(allowMainThreadDeferral: false)
-            }
-            return
-        }
-
-        if !Thread.isMainThread || !allowMainThreadDeferral {
-            actionLock.lock()
-        }
-
         let result: (
             ActiveTarget?,
             ComputerUseVisualEffectHook?,
             FrontmostApplicationMonitor.ObserverToken?
-        ) = lock.withLock {
+        ) = stateQueue.sync {
             guard !finished else { return (nil, nil, nil) }
             finished = true
             let target = activeTarget
@@ -87,7 +71,6 @@ public final class ComputerUseSession: @unchecked Sendable {
             frontmostObserver = nil
             return (target, hook, observer)
         }
-        actionLock.unlock()
         restoreAndFinish(result.0)
         result.1?.finish()
         result.2?.cancel()
@@ -116,26 +99,24 @@ public final class ComputerUseSession: @unchecked Sendable {
         visualEffect event: ComputerUseVisualEffectEvent? = nil,
         _ body: () throws -> T
     ) throws -> T {
-        try actionLock.withLock {
-            let prepared: (ActiveTarget, ComputerUseVisualEffectHook?) = try lock.withLock {
-                guard !finished else {
-                    throw ComputerUseError.invalidArgument("computer use session is already finished")
-                }
-
-                let (target, _) = try prepareTargetForAction(snapshot)
-                target.backgroundActivation?.beginTargetDelivery()
-                return (target, visualEffectHookStorage)
+        let prepared: (ActiveTarget, ComputerUseVisualEffectHook?) = try stateQueue.sync {
+            guard !finished else {
+                throw ComputerUseError.invalidArgument("computer use session is already finished")
             }
 
-            defer {
-                prepared.0.backgroundActivation?.holdFocusSuppressionUntilFinish()
-            }
-
-            if let event, let hook = prepared.1 {
-                return try hook.perform(event, action: body)
-            }
-            return try body()
+            let (target, _) = try prepareTargetForAction(snapshot)
+            target.backgroundActivation?.beginTargetDelivery()
+            return (target, visualEffectHookStorage)
         }
+
+        defer {
+            prepared.0.backgroundActivation?.holdFocusSuppressionUntilFinish()
+        }
+
+        if let event, let hook = prepared.1 {
+            return try hook.perform(event, action: body)
+        }
+        return try body()
     }
 
     func performWithBackgroundActivation<T>(
@@ -146,23 +127,21 @@ public final class ComputerUseSession: @unchecked Sendable {
     }
 
     func prepareForSnapshotCapture(on snapshot: RuntimeAppSnapshot) throws -> Bool {
-        try actionLock.withLock {
-            try lock.withLock {
-                guard !finished else {
-                    throw ComputerUseError.invalidArgument("computer use session is already finished")
-                }
-
-                let (target, activated) = try prepareTargetForAction(snapshot)
-                if activated {
-                    target.backgroundActivation?.holdFocusSuppressionUntilFinish()
-                }
-                return activated
+        try stateQueue.sync {
+            guard !finished else {
+                throw ComputerUseError.invalidArgument("computer use session is already finished")
             }
+
+            let (target, activated) = try prepareTargetForAction(snapshot)
+            if activated {
+                target.backgroundActivation?.holdFocusSuppressionUntilFinish()
+            }
+            return activated
         }
     }
 
     func recordAction(_ description: String) {
-        lock.withLock {
+        stateQueue.sync {
             guard !finished else { return }
             recentActions.append(description)
             if recentActions.count > 12 {
@@ -173,14 +152,14 @@ public final class ComputerUseSession: @unchecked Sendable {
 
     func recordSnapshot(_ metadata: ComputerUseSnapshotMetadata?) {
         guard let metadata else { return }
-        lock.withLock {
+        stateQueue.sync {
             guard !finished else { return }
             latestSnapshotMetadata = metadata
         }
     }
 
     func requireLatestSnapshot(action: String) throws -> ComputerUseSnapshotMetadata {
-        try lock.withLock {
+        try stateQueue.sync {
             guard !finished else {
                 throw ComputerUseError.invalidArgument("computer use session is already finished")
             }
@@ -196,7 +175,7 @@ public final class ComputerUseSession: @unchecked Sendable {
             return output
         }
 
-        let annotation = lock.withLock {
+        let annotation = stateQueue.sync {
             guard !finished else { return "" }
             observationSequence += 1
             let key = ObservationKey(pid: metadata.pid, windowID: metadata.windowID)
@@ -266,22 +245,20 @@ public final class ComputerUseSession: @unchecked Sendable {
     }
 
     private func frontmostApplicationDidChange(pid: pid_t) {
-        let target = actionLock.withLock {
-            lock.withLock {
-                guard !finished,
-                      var activeTarget,
-                      activeTarget.pid == pid,
-                      activeTarget.backgroundActivation != nil
-                else {
-                    return nil as ActiveTarget?
-                }
-
-                let previousLease = activeTarget
-                activeTarget.backgroundActivation = nil
-                activeTarget.backgroundActivated = false
-                self.activeTarget = activeTarget
-                return previousLease
+        let target = stateQueue.sync {
+            guard !finished,
+                  var activeTarget,
+                  activeTarget.pid == pid,
+                  activeTarget.backgroundActivation != nil
+            else {
+                return nil as ActiveTarget?
             }
+
+            let previousLease = activeTarget
+            activeTarget.backgroundActivation = nil
+            activeTarget.backgroundActivated = false
+            self.activeTarget = activeTarget
+            return previousLease
         }
 
         restoreAndFinish(target)
@@ -357,18 +334,20 @@ public final class ComputerUseSession: @unchecked Sendable {
     }
 
     private func isTargetWindowMain(_ snapshot: RuntimeAppSnapshot) -> Bool {
-        if cuBoolAttribute(snapshot.windowElement, name: kAXMainAttribute as String) == true {
-            return true
-        }
+        ComputerUseCore.runAXRead {
+            if cuBoolAttribute(snapshot.windowElement, name: kAXMainAttribute as String) == true {
+                return true
+            }
 
-        if let mainWindow = cuAttribute(
-            snapshot.appElement,
-            name: kAXMainWindowAttribute as String
-        ) as AXUIElement?, CFEqual(mainWindow, snapshot.windowElement) {
-            return true
-        }
+            if let mainWindow = cuAttribute(
+                snapshot.appElement,
+                name: kAXMainWindowAttribute as String
+            ) as AXUIElement?, CFEqual(mainWindow, snapshot.windowElement) {
+                return true
+            }
 
-        return false
+            return false
+        }
     }
 
     private func restoreAndFinish(_ target: ActiveTarget?) {

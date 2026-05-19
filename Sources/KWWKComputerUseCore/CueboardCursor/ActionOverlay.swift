@@ -349,27 +349,29 @@ private func actionOverlayWindowSnapshot(
 }
 
 public func actionOverlayAXFrame(of element: AXUIElement) -> CGRect? {
-    guard
-        let positionRef = actionOverlayAXAttribute(element, name: kAXPositionAttribute),
-        let sizeRef = actionOverlayAXAttribute(element, name: kAXSizeAttribute)
-    else {
-        return nil
-    }
+    ComputerUseCore.runAXRead {
+        guard
+            let positionRef = actionOverlayAXAttribute(element, name: kAXPositionAttribute),
+            let sizeRef = actionOverlayAXAttribute(element, name: kAXSizeAttribute)
+        else {
+            return nil
+        }
 
-    let positionValue = positionRef as! AXValue
-    let sizeValue = sizeRef as! AXValue
-    var origin = CGPoint.zero
-    var size = CGSize.zero
-    guard
-        AXValueGetType(positionValue) == .cgPoint,
-        AXValueGetValue(positionValue, .cgPoint, &origin),
-        AXValueGetType(sizeValue) == .cgSize,
-        AXValueGetValue(sizeValue, .cgSize, &size)
-    else {
-        return nil
-    }
+        let positionValue = positionRef as! AXValue
+        let sizeValue = sizeRef as! AXValue
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        guard
+            AXValueGetType(positionValue) == .cgPoint,
+            AXValueGetValue(positionValue, .cgPoint, &origin),
+            AXValueGetType(sizeValue) == .cgSize,
+            AXValueGetValue(sizeValue, .cgSize, &size)
+        else {
+            return nil
+        }
 
-    return CGRect(origin: origin, size: size)
+        return CGRect(origin: origin, size: size)
+    }
 }
 
 private func actionOverlayAXAttribute(

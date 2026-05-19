@@ -30,14 +30,11 @@ final class ChromiumAccessibilityActivation: @unchecked Sendable {
         return nil
     }()
 
-    private let lock = NSLock()
     private var activatedPIDs = Set<pid_t>()
     private var observers: [pid_t: AXObserver] = [:]
 
     func activateIfNeeded(pid: pid_t, root: AXUIElement) {
-        lock.lock()
         let alreadyActivated = activatedPIDs.contains(pid)
-        lock.unlock()
 
         guard assertChromiumAccessibility(root: root) else {
             return
@@ -47,15 +44,13 @@ final class ChromiumAccessibilityActivation: @unchecked Sendable {
             return
         }
 
-        lock.lock()
         let inserted = activatedPIDs.insert(pid).inserted
-        lock.unlock()
         guard inserted else {
             return
         }
 
         registerObserver(pid: pid, root: root)
-        pumpRunLoopForActivation(duration: 0.5)
+        waitForActivation(duration: 0.5)
     }
 
     private func assertChromiumAccessibility(root: AXUIElement) -> Bool {
@@ -87,16 +82,14 @@ final class ChromiumAccessibilityActivation: @unchecked Sendable {
         }
 
         if let source = AXObserverGetRunLoopSource(observer) as CFRunLoopSource? {
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, CFRunLoopMode.defaultMode)
+            CoreRunLoopThread.shared.addSource(source, mode: CFRunLoopMode.defaultMode)
         }
 
         for notification in notifications {
             _ = addNotification(observer: observer, element: root, notification: notification)
         }
 
-        lock.lock()
         observers[pid] = observer
-        lock.unlock()
     }
 
     private func addNotification(
@@ -110,12 +103,8 @@ final class ChromiumAccessibilityActivation: @unchecked Sendable {
         return AXObserverAddNotification(observer, element, notification, nil)
     }
 
-    private func pumpRunLoopForActivation(duration: CFTimeInterval) {
-        let deadline = CFAbsoluteTimeGetCurrent() + duration
-        while CFAbsoluteTimeGetCurrent() < deadline {
-            let remaining = deadline - CFAbsoluteTimeGetCurrent()
-            _ = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, remaining, false)
-        }
+    private func waitForActivation(duration: TimeInterval) {
+        Thread.sleep(forTimeInterval: duration)
     }
 
     private let notifications: [CFString] = [
