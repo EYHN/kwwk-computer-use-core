@@ -5,7 +5,7 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
     typealias Handler = @Sendable (pid_t) -> Void
 
     final class ObserverToken: @unchecked Sendable {
-        private let lock = NSLock()
+        private let queue = DispatchQueue(label: "com.kwwk.computer-use.frontmost-monitor-token")
         private var cancellation: (@Sendable () -> Void)?
 
         init(cancellation: @escaping @Sendable () -> Void) {
@@ -13,7 +13,7 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
         }
 
         func cancel() {
-            let cancellation = lock.withLock {
+            let cancellation = queue.sync {
                 let value = self.cancellation
                 self.cancellation = nil
                 return value
@@ -26,8 +26,7 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
         }
     }
 
-    private let lock = NSLock()
-    private let notifyQueue = DispatchQueue(label: "com.kwwk.computer-use.frontmost-monitor")
+    private let stateQueue = DispatchQueue(label: "com.kwwk.computer-use.frontmost-monitor")
     private var handlers: [UUID: Handler] = [:]
     private var workspaceObserver: NSObjectProtocol?
 
@@ -48,22 +47,18 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
                     return
                 }
                 let pid = app.processIdentifier
-                self?.notifyQueue.async { [weak self] in
+                self?.stateQueue.async { [weak self] in
                     self?.notifyFrontmostPID(pid)
                 }
             }
         }
 
-        if Thread.isMainThread {
-            install()
-        } else {
-            DispatchQueue.main.sync(execute: install)
-        }
+        runWorkspaceNotificationCenterOperation(install)
     }
 
     func observe(_ handler: @escaping Handler) -> ObserverToken {
         let id = UUID()
-        lock.withLock {
+        stateQueue.sync {
             handlers[id] = handler
         }
 
@@ -73,15 +68,13 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
     }
 
     private func removeObserver(id: UUID) {
-        lock.withLock {
+        stateQueue.sync {
             handlers[id] = nil
         }
     }
 
     private func notifyFrontmostPID(_ pid: pid_t) {
-        let currentHandlers = lock.withLock {
-            Array(handlers.values)
-        }
+        let currentHandlers = Array(handlers.values)
         for handler in currentHandlers {
             handler(pid)
         }
@@ -92,10 +85,14 @@ final class FrontmostApplicationMonitor: @unchecked Sendable {
         let remove = {
             NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
         }
+        runWorkspaceNotificationCenterOperation(remove)
+    }
+
+    private func runWorkspaceNotificationCenterOperation(_ operation: @escaping () -> Void) {
         if Thread.isMainThread {
-            remove()
+            operation()
         } else {
-            DispatchQueue.main.sync(execute: remove)
+            DispatchQueue.main.sync(execute: operation)
         }
     }
 }

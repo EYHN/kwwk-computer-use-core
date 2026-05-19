@@ -145,8 +145,8 @@ private func testSetFrontProcessWithOptions(_ psn: UnsafePointer<ProcessSerialNu
 
 @Suite("Computer use in-process background behavior", .serialized)
 struct InProcessComputerUseBehaviorTests {
-    @Test("direct product actions preserve background focus invariants")
-    func directProductActionsPreserveBackgroundFocusInvariants() async throws {
+    @Test("Probe complete computer-use interaction chain")
+    func probeCompleteComputerUseInteractionChain() async throws {
         guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
             return
         }
@@ -168,28 +168,6 @@ struct InProcessComputerUseBehaviorTests {
         try await verifyClickByCoordinate()
         try await verifyTypeText()
         try await verifyAXValueAndPress()
-        try await verifySessionSwitchingRestoresPreviousBackgroundTarget()
-    }
-
-    @Test("coordinate clicks land at requested Probe window locations")
-    func coordinateClicksLandAtRequestedProbeWindowLocations() async throws {
-        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
-            return
-        }
-        guard AXIsProcessTrusted() else {
-            Issue.record("Accessibility permission is required for GUI Probe tests.")
-            return
-        }
-        guard ProbeHarness.bundleExists("A"),
-              ProbeHarness.bundleExists("B"),
-              ProbeHarness.bundleExists("C")
-        else {
-            Issue.record("Probe apps are missing under /private/tmp/kwwk-activation-probe.")
-            return
-        }
-        ProbeHarness.showCountdownIfNeeded()
-        defer { ProbeHarness.cleanup() }
-
         try await verifyCoordinateClickLocation(
             windowLocalPoint: CGPoint(x: 355, y: 200),
             eventPrefix: "root.mouseDown",
@@ -200,116 +178,12 @@ struct InProcessComputerUseBehaviorTests {
             eventPrefix: "button.mouseDown",
             expectedClickDelta: 1
         )
-    }
-
-    @Test("Probe global menu bar click returns menu AX tree")
-    func probeGlobalMenuBarClickReturnsMenuAXTree() async throws {
-        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
-            return
-        }
-        guard AXIsProcessTrusted() else {
-            Issue.record("Accessibility permission is required for GUI Probe tests.")
-            return
-        }
-        guard ProbeHarness.bundleExists("A"),
-              ProbeHarness.bundleExists("B"),
-              ProbeHarness.bundleExists("C")
-        else {
-            Issue.record("Probe apps are missing under /private/tmp/kwwk-activation-probe.")
-            return
-        }
-        ProbeHarness.showCountdownIfNeeded()
-        defer { ProbeHarness.cleanup() }
-
+        try await verifySessionSwitchingRestoresPreviousBackgroundTarget()
         try await verifyGlobalMenuBarClickReturnsMenuAXTree()
-    }
-
-    @Test("Probe background global menu item can be picked")
-    func probeBackgroundGlobalMenuItemCanBePicked() async throws {
-        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
-            return
-        }
-        guard AXIsProcessTrusted() else {
-            Issue.record("Accessibility permission is required for GUI Probe tests.")
-            return
-        }
-        guard ProbeHarness.bundleExists("A"),
-              ProbeHarness.bundleExists("B"),
-              ProbeHarness.bundleExists("C")
-        else {
-            Issue.record("Probe apps are missing under /private/tmp/kwwk-activation-probe.")
-            return
-        }
-        ProbeHarness.showCountdownIfNeeded()
-        defer { ProbeHarness.cleanup() }
-
         try await verifyBackgroundGlobalMenuItemCanBePicked()
-    }
-
-    @Test("Probe status menu click returns menu AX tree")
-    func probeStatusMenuClickReturnsMenuAXTree() async throws {
-        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
-            return
-        }
-        guard AXIsProcessTrusted() else {
-            Issue.record("Accessibility permission is required for GUI Probe tests.")
-            return
-        }
-        guard ProbeHarness.bundleExists("A"),
-              ProbeHarness.bundleExists("B"),
-              ProbeHarness.bundleExists("C")
-        else {
-            Issue.record("Probe apps are missing under /private/tmp/kwwk-activation-probe.")
-            return
-        }
-        ProbeHarness.showCountdownIfNeeded()
-        defer { ProbeHarness.cleanup() }
-
         try await verifyStatusMenuClickReturnsMenuAXTree()
-    }
-
-    @Test("Probe window menu button click returns menu AX tree")
-    func probeWindowMenuButtonClickReturnsMenuAXTree() async throws {
-        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
-            return
-        }
-        guard AXIsProcessTrusted() else {
-            Issue.record("Accessibility permission is required for GUI Probe tests.")
-            return
-        }
-        guard ProbeHarness.bundleExists("A"),
-              ProbeHarness.bundleExists("B"),
-              ProbeHarness.bundleExists("C")
-        else {
-            Issue.record("Probe apps are missing under /private/tmp/kwwk-activation-probe.")
-            return
-        }
-        ProbeHarness.showCountdownIfNeeded()
-        defer { ProbeHarness.cleanup() }
-
         try await verifyWindowMenuButtonClickReturnsMenuAXTree()
-    }
-
-    @Test("Probe window menu button minimal repro")
-    func probeWindowMenuButtonMinimalRepro() async throws {
-        guard ProcessInfo.processInfo.environment["KWWK_COMPUTER_USE_CORE_RUN_GUI_PROBE_TESTS"] == "1" else {
-            return
-        }
-        guard AXIsProcessTrusted() else {
-            Issue.record("Accessibility permission is required for GUI Probe tests.")
-            return
-        }
-        guard ProbeHarness.bundleExists("A"),
-              ProbeHarness.bundleExists("B"),
-              ProbeHarness.bundleExists("C")
-        else {
-            Issue.record("Probe apps are missing under /private/tmp/kwwk-activation-probe.")
-            return
-        }
-        ProbeHarness.showCountdownIfNeeded()
-        defer { ProbeHarness.cleanup() }
-
-        try await verifyWindowMenuButtonMinimalRepro()
+        try await verifyOpenWindowMenuIsReturnedByGetState()
     }
 
     private func verifyClickByElement() async throws {
@@ -713,7 +587,7 @@ struct InProcessComputerUseBehaviorTests {
         #expect(ProbeHarness.clicks("ProbeB") == baseline.clicks)
     }
 
-    private func verifyWindowMenuButtonMinimalRepro() async throws {
+    private func verifyOpenWindowMenuIsReturnedByGetState() async throws {
         let context = try ProbeHarness.reset()
         let baseline = ProbeHarness.captureBaseline(context)
         let session = makeProbeSession()

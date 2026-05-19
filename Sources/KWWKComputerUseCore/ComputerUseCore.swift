@@ -99,19 +99,6 @@ struct WindowSelection {
     var windowID: Int? = nil
 }
 
-private final class SyncOperation<T>: @unchecked Sendable {
-    private let body: () -> T
-    var result: T?
-
-    init(_ body: @escaping () -> T) {
-        self.body = body
-    }
-
-    func run() {
-        result = body()
-    }
-}
-
 enum ComputerUseCore {
     private typealias ResolvedWindowMatch = (
         element: AXUIElement,
@@ -641,19 +628,7 @@ enum ComputerUseCore {
     }
 
     static func runAXRead<T>(_ body: @escaping () -> T) -> T {
-        if !Thread.isMainThread {
-            return body()
-        }
-
-        let operation = SyncOperation(body)
-        DispatchQueue.global(qos: .userInitiated).sync {
-            operation.run()
-        }
-        return operation.result!
-    }
-
-    static var isRunningAXReadOffMain: Bool {
-        !Thread.isMainThread
+        body()
     }
 
     private static func transientMenuWindowFrame(for pid: pid_t) -> CGRect? {
@@ -834,19 +809,6 @@ enum ComputerUseCore {
         statusMenuExtras: [AXUIElement],
         filterVisibleNodes: Bool
     ) -> RuntimeAppSnapshot? {
-        if !isRunningAXReadOffMain {
-            return runAXRead {
-                statusSurfaceSnapshot(
-                    app: app,
-                    appElement: appElement,
-                    focusedElement: focusedElement,
-                    selectedText: selectedText,
-                    statusMenuExtras: statusMenuExtras,
-                    filterVisibleNodes: filterVisibleNodes
-                )
-            }
-        }
-
         if let popupMenu = activeStatusMenuItemCandidate(in: statusMenuExtras) {
             return statusSurfaceSnapshot(
                 app: app,

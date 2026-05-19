@@ -25,7 +25,6 @@ final class BackgroundActivationSession: @unchecked Sendable {
         }
     }
 
-    private static let sessionLock = NSLock()
     // Focus messages do not have a stable public CGEventType across apps/macOS releases.
     // Register broadly, then filter narrowly in shouldDrop(kind:type:event:).
     private static let focusSuppressionEventMask = CGEventMask.max
@@ -42,8 +41,6 @@ final class BackgroundActivationSession: @unchecked Sendable {
     }
 
     static func start(targetPID: pid_t) throws -> BackgroundActivationSession {
-        sessionLock.lock()
-
         let previousApp = NSWorkspace.shared.frontmostApplication
         let session = BackgroundActivationSession(targetPID: targetPID)
 
@@ -188,7 +185,6 @@ final class BackgroundActivationSession: @unchecked Sendable {
         }
         taps.removeAll()
         contexts.removeAll()
-        Self.sessionLock.unlock()
     }
 
     deinit {
@@ -221,8 +217,11 @@ final class BackgroundActivationSession: @unchecked Sendable {
             throw ComputerUseError.invalidArgument("failed to install focus suppression event tap for pid \(pid)")
         }
 
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            throw ComputerUseError.invalidArgument("failed to create focus suppression run loop source for pid \(pid)")
+        }
+        CoreRunLoopThread.shared.addSource(source, mode: .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
         contexts.append(context)
