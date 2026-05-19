@@ -113,13 +113,6 @@ private final class SyncOperation<T>: @unchecked Sendable {
 }
 
 enum ComputerUseCore {
-    private static let axReadQueueKey = DispatchSpecificKey<Bool>()
-    private static let axReadQueue: DispatchQueue = {
-        let queue = DispatchQueue(label: "com.kwwk.computer-use-core.ax-read")
-        queue.setSpecific(key: axReadQueueKey, value: true)
-        return queue
-    }()
-
     private typealias ResolvedWindowMatch = (
         element: AXUIElement,
         title: String,
@@ -648,19 +641,19 @@ enum ComputerUseCore {
     }
 
     static func runAXRead<T>(_ body: @escaping () -> T) -> T {
-        if DispatchQueue.getSpecific(key: axReadQueueKey) == true {
+        if !Thread.isMainThread {
             return body()
         }
 
         let operation = SyncOperation(body)
-        axReadQueue.sync {
+        DispatchQueue.global(qos: .userInitiated).sync {
             operation.run()
         }
         return operation.result!
     }
 
-    static var isRunningAXReadQueue: Bool {
-        DispatchQueue.getSpecific(key: axReadQueueKey) == true
+    static var isRunningAXReadOffMain: Bool {
+        !Thread.isMainThread
     }
 
     private static func transientMenuWindowFrame(for pid: pid_t) -> CGRect? {
@@ -841,7 +834,7 @@ enum ComputerUseCore {
         statusMenuExtras: [AXUIElement],
         filterVisibleNodes: Bool
     ) -> RuntimeAppSnapshot? {
-        if !isRunningAXReadQueue {
+        if !isRunningAXReadOffMain {
             return runAXRead {
                 statusSurfaceSnapshot(
                     app: app,

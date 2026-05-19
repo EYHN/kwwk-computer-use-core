@@ -105,9 +105,7 @@ extension ComputerUseCore {
                 continue
             }
 
-            let hasVisibleMenu = menus.contains {
-                cuElements(from: cuRawAttribute($0, name: "AXVisibleChildren")).isEmpty == false
-            }
+            let hasVisibleMenu = menus.contains(where: popupMenuHasVisibleItems)
             let isActive = cuBoolAttribute(item, name: kAXSelectedAttribute as String) == true ||
                 cuBoolAttribute(item, name: kAXFocusedAttribute as String) == true ||
                 hasVisibleMenu
@@ -240,7 +238,11 @@ extension ComputerUseCore {
     }
 
     private static func popupMenuHasVisibleItems(_ menu: AXUIElement) -> Bool {
-        let visibleChildren = cuElements(from: cuRawAttribute(menu, name: "AXVisibleChildren"))
+        guard let rawVisibleChildren = cuRawAttribute(menu, name: "AXVisibleChildren") else {
+            return popupMenuHasItems(menu)
+        }
+
+        let visibleChildren = cuElements(from: rawVisibleChildren)
         guard visibleChildren.isEmpty == false else {
             return false
         }

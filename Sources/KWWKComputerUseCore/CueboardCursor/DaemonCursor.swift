@@ -328,12 +328,14 @@ public final class DaemonCursor: @unchecked Sendable {
         }
 
         let deadline = Date(timeIntervalSinceNow: duration)
+        let step = max(ActionOverlayTiming.trackingInterval, 0.001)
         while Date() < deadline {
             if let placement = tracking?.resolvePlacement() {
                 applyAnchor(placement.target)
             }
-            _ = RunLoop.current.run(mode: .default, before: deadline)
-            _ = RunLoop.current.run(mode: .eventTracking, before: deadline)
+            let nextUpdate = min(Date(timeIntervalSinceNow: step), deadline)
+            _ = RunLoop.current.run(mode: .default, before: nextUpdate)
+            _ = RunLoop.current.run(mode: .eventTracking, before: nextUpdate)
         }
 
         if let placement = tracking?.resolvePlacement() {
