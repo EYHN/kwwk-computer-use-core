@@ -141,12 +141,12 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         do {
             let result = try actionBox.call()
             try runOnMain {
-                DaemonCursor.shared.holdAfterAction()
+                DaemonCursor.shared.holdAfterAction(tracking: self.tracking(for: event))
             }
             return result
         } catch {
             try? runOnMain {
-                DaemonCursor.shared.holdAfterAction()
+                DaemonCursor.shared.holdAfterAction(tracking: self.tracking(for: event))
             }
             throw error
         }
@@ -157,12 +157,13 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
         _ event: ComputerUseVisualEffectEvent,
         kind: ActionOverlayKind
     ) throws {
+        let tracking = tracking(for: event)
         try DaemonCursor.shared.runApproachToActionTarget(
             kind: kind,
             target: target(for: event),
             fallbackScreenPoint: screenPoint(for: event.startPoint, windowFrame: event.windowFrame.cgRect),
             fallbackWindowFrame: event.windowFrame.cgRect,
-            tracking: tracking(for: event)
+            tracking: tracking
         )
     }
 
@@ -193,7 +194,7 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
 
     @MainActor
     private func tracking(for event: ComputerUseVisualEffectEvent) -> ActionOverlayTracking {
-        windowLocalPointOverlayTracking(
+        let base = windowLocalPointOverlayTracking(
             target: target(for: event),
             fallbackWindowFrame: event.windowFrame.cgRect
         ) {
@@ -202,6 +203,31 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
                 y: event.windowFrame.cgRect.height / 2
             )
         }
+        return ActionOverlayTracking {
+            let placement = base.resolvePlacement()
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self.updateBorderOverlay(for: event, placement: placement)
+                }
+            }
+            return placement
+        }
+    }
+
+    @MainActor
+    private func updateBorderOverlay(
+        for event: ComputerUseVisualEffectEvent,
+        placement: ActionOverlayPlacement?
+    ) {
+        guard event.surfaceKind == .window else {
+            return
+        }
+        guard case let .window(number, _) = placement?.target ?? target(for: event),
+              number > 0
+        else {
+            return
+        }
+        borderOverlay?.attach(toCGWindow: CGWindowID(number))
     }
 
     @MainActor

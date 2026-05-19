@@ -81,11 +81,15 @@ public final class DaemonCursor: @unchecked Sendable {
             applyPose(screenPoint: target, canvasTheta: ActionOverlayApproachConstants.cursorDockHeading)
         }
 
-        ActionOverlayRuntime.pump(for: ActionOverlayTiming.preActionHold)
+        pumpFollowingAnchor(for: ActionOverlayTiming.preActionHold, tracking: tracking)
     }
 
     public func holdAfterAction() {
-        ActionOverlayRuntime.pump(for: ActionOverlayTiming.finalHold)
+        holdAfterAction(tracking: nil)
+    }
+
+    public func holdAfterAction(tracking: ActionOverlayTracking?) {
+        pumpFollowingAnchor(for: ActionOverlayTiming.finalHold, tracking: tracking)
     }
 
     public func runApproachThenDrag(
@@ -107,7 +111,7 @@ public final class DaemonCursor: @unchecked Sendable {
             fallbackTargetScreen: startScreenPoint
         )
 
-        ActionOverlayRuntime.pump(for: ActionOverlayTiming.postApproachDwell)
+        pumpFollowingAnchor(for: ActionOverlayTiming.postApproachDwell, tracking: approachTracking)
 
         try onDragDown()
 
@@ -153,7 +157,7 @@ public final class DaemonCursor: @unchecked Sendable {
 
         try onDragUp(endScreenPoint)
 
-        ActionOverlayRuntime.pump(for: ActionOverlayTiming.finalHold)
+        pumpFollowingAnchor(for: ActionOverlayTiming.finalHold, tracking: approachTracking)
     }
 
     public func tearDown() {
@@ -313,6 +317,28 @@ public final class DaemonCursor: @unchecked Sendable {
             panel.orderFrontRegardless()
         }
         currentAnchor = anchor
+    }
+
+    private func pumpFollowingAnchor(for duration: TimeInterval, tracking: ActionOverlayTracking?) {
+        guard duration > 0 else {
+            if let placement = tracking?.resolvePlacement() {
+                applyAnchor(placement.target)
+            }
+            return
+        }
+
+        let deadline = Date(timeIntervalSinceNow: duration)
+        while Date() < deadline {
+            if let placement = tracking?.resolvePlacement() {
+                applyAnchor(placement.target)
+            }
+            _ = RunLoop.current.run(mode: .default, before: deadline)
+            _ = RunLoop.current.run(mode: .eventTracking, before: deadline)
+        }
+
+        if let placement = tracking?.resolvePlacement() {
+            applyAnchor(placement.target)
+        }
     }
 
     private func applyPose(screenPoint: CGPoint, canvasTheta: CGFloat) {
