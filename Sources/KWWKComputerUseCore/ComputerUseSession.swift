@@ -53,27 +53,41 @@ public final class ComputerUseSession: @unchecked Sendable {
     }
 
     deinit {
-        finish()
+        finish(allowMainThreadDeferral: false)
     }
 
     public func finish() {
+        finish(allowMainThreadDeferral: true)
+    }
+
+    private func finish(allowMainThreadDeferral: Bool) {
+        if Thread.isMainThread, allowMainThreadDeferral, !actionLock.try() {
+            DispatchQueue.global(qos: .utility).async { [self] in
+                finish(allowMainThreadDeferral: false)
+            }
+            return
+        }
+
+        if !Thread.isMainThread || !allowMainThreadDeferral {
+            actionLock.lock()
+        }
+
         let result: (
             ActiveTarget?,
             ComputerUseVisualEffectHook?,
             FrontmostApplicationMonitor.ObserverToken?
-        ) = actionLock.withLock {
-            lock.withLock {
-                guard !finished else { return (nil, nil, nil) }
-                finished = true
-                let target = activeTarget
-                let hook = visualEffectHookStorage
-                let observer = frontmostObserver
-                activeTarget = nil
-                visualEffectHookStorage = nil
-                frontmostObserver = nil
-                return (target, hook, observer)
-            }
+        ) = lock.withLock {
+            guard !finished else { return (nil, nil, nil) }
+            finished = true
+            let target = activeTarget
+            let hook = visualEffectHookStorage
+            let observer = frontmostObserver
+            activeTarget = nil
+            visualEffectHookStorage = nil
+            frontmostObserver = nil
+            return (target, hook, observer)
         }
+        actionLock.unlock()
         restoreAndFinish(result.0)
         result.1?.finish()
         result.2?.cancel()
@@ -88,6 +102,7 @@ public final class ComputerUseSession: @unchecked Sendable {
     ) -> ComputerUseVisualEffectEvent {
         ComputerUseVisualEffectEvent(
             action: action,
+            surfaceKind: ComputerUseVisualEffectSurfaceKind(snapshot.surfaceKind),
             windowID: snapshot.windowID,
             windowFrame: CGRectCodable(snapshot.windowFrame),
             startPoint: startPoint.map { CGPointCodable($0) },

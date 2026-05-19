@@ -30,17 +30,21 @@ public final class BorderOverlay {
     /// same window is cheap and updates the placement to the window's
     /// current frame.
     public func attach(toCGWindow windowNumber: CGWindowID, cornerRadius: CGFloat? = nil) {
-        guard let axBounds = lookupBounds(forCGWindowID: windowNumber) else {
+        guard let windowInfo = lookupRegularWindowInfo(forCGWindowID: windowNumber) else {
             borderLogger.warning(
-                "attach(cgWindow=\(windowNumber, privacy: .public)) skipped: CGWindowListCopyWindowInfo returned no bounds"
+                "attach(cgWindow=\(windowNumber, privacy: .public)) skipped: target is not a regular app window"
             )
+            detach()
             return
         }
-        let radius = cornerRadius ?? appearance.defaultCornerRadius
+        let axBounds = windowInfo.bounds
+        let radius = cornerRadius
+            ?? queryWindowCornerRadius(windowNumber: Int(windowNumber))
+            ?? appearance.defaultCornerRadius
         let wasAttached = attachedAnchor != nil
 
         borderLogger.info(
-            "attach(cgWindow=\(windowNumber, privacy: .public)) ax=\(axBounds.debugDescription, privacy: .public) wasAttached=\(wasAttached, privacy: .public)"
+            "attach(cgWindow=\(windowNumber, privacy: .public)) ax=\(axBounds.debugDescription, privacy: .public) layer=\(windowInfo.layer, privacy: .public) wasAttached=\(wasAttached, privacy: .public)"
         )
 
         // Daemon runs as `.accessory`; `animator().alphaValue = 1` (what
@@ -98,7 +102,7 @@ public final class BorderOverlay {
 
     /// Returns the bounds of `windowNumber` in AX-screen space (y-down,
     /// origin top-left of primary display) — what `kCGWindowBounds` reports.
-    private func lookupBounds(forCGWindowID windowNumber: CGWindowID) -> CGRect? {
+    private func lookupRegularWindowInfo(forCGWindowID windowNumber: CGWindowID) -> RegularWindowInfo? {
         let options: CGWindowListOption = [.optionIncludingWindow]
         guard
             let infoList = CGWindowListCopyWindowInfo(options, windowNumber) as? [[String: Any]],
@@ -106,6 +110,21 @@ public final class BorderOverlay {
             let dict = entry[kCGWindowBounds as String] as? NSDictionary,
             let rect = CGRect(dictionaryRepresentation: dict)
         else { return nil }
-        return rect
+        let layer = entry[kCGWindowLayer as String] as? Int ?? Int.min
+        let isOnscreen = (entry[kCGWindowIsOnscreen as String] as? Int ?? 0) != 0
+        let alpha = entry[kCGWindowAlpha as String] as? Double ?? 0
+        guard layer == 0,
+              isOnscreen,
+              alpha > 0,
+              rect.width > 0,
+              rect.height > 0
+        else { return nil }
+
+        return RegularWindowInfo(bounds: rect, layer: layer)
     }
+}
+
+private struct RegularWindowInfo {
+    let bounds: CGRect
+    let layer: Int
 }

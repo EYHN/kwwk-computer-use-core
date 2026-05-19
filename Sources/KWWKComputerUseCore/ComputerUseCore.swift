@@ -99,6 +99,19 @@ struct WindowSelection {
     var windowID: Int? = nil
 }
 
+private final class MainAXReadOperation<T>: @unchecked Sendable {
+    private let body: () -> T
+    var result: T?
+
+    init(_ body: @escaping () -> T) {
+        self.body = body
+    }
+
+    func run() {
+        result = body()
+    }
+}
+
 enum ComputerUseCore {
     static func startupInventoryText() -> String {
         let apps = listRunningApps()
@@ -466,46 +479,14 @@ enum ComputerUseCore {
             return statusSnapshot
         }
 
-        if let popupMenu = popupMenuCandidate(in: appElement) ??
-            activeMenuBarItemCandidate(in: appElement) ??
-            activeStatusMenuItemCandidate(in: appElement) {
-            let nodes = flattenTree(
-                from: popupMenu.element,
-                focusedElement: focusedElement,
-                visibleFrame: popupMenu.frame,
-                filterVisibleNodes: filterVisibleNodes
-            )
-            let focusedIndex = focusedElement.flatMap { focused in
-                nodes.first(where: { CFEqual($0.element, focused) })?.index
-            }
-            let selectedText = focusedElement.flatMap {
-                cuAttribute($0, name: kAXSelectedTextAttribute as String) as String?
-            }
-            let fingerprint = fingerprint(
-                app: app,
-                windowID: windowMatch.cgWindow.windowID,
-                windowTitle: windowMatch.title,
-                windowFrame: windowMatch.frame,
-                nodes: nodes,
-                focusedElementIndex: focusedIndex,
-                selectedText: selectedText
-            )
-
-            return RuntimeAppSnapshot(
-                app: app,
-                appElement: appElement,
-                windowElement: popupMenu.element,
-                surfaceKind: .menu,
-                windowID: windowMatch.cgWindow.windowID,
-                windowTitle: windowMatch.title,
-                windowFrame: windowMatch.frame,
-                nodes: nodes,
-                focusedElementIndex: focusedIndex,
-                selectedText: selectedText,
-                screenshotURL: nil,
-                screenshotSize: nil,
-                fingerprint: fingerprint
-            )
+        if let menuSnapshot = menuSurfaceSnapshot(
+            app: app,
+            appElement: appElement,
+            windowMatch: windowMatch,
+            focusedElement: focusedElement,
+            filterVisibleNodes: filterVisibleNodes
+        ) {
+            return menuSnapshot
         }
 
         var nodes = flattenTree(
@@ -514,30 +495,24 @@ enum ComputerUseCore {
             visibleFrame: windowMatch.frame,
             filterVisibleNodes: filterVisibleNodes
         )
-        if let menuBar = cuAttribute(appElement, name: kAXMenuBarAttribute as String) as AXUIElement? {
-            nodes.append(contentsOf: reindexedNodes(
-                flattenTree(
-                    from: menuBar,
-                    focusedElement: focusedElement,
-                    visibleFrame: cuFrame(menuBar) ?? windowMatch.frame,
-                    filterVisibleNodes: filterVisibleNodes,
-                    maxDepth: 1
-                ),
-                startingAt: nodes.count
-            ))
-        }
-        for statusItem in statusMenuExtraCandidates(in: appElement) {
-            nodes.append(contentsOf: reindexedNodes(
-                flattenTree(
-                    from: statusItem,
-                    focusedElement: focusedElement,
-                    visibleFrame: cuFrame(statusItem) ?? windowMatch.frame,
-                    filterVisibleNodes: filterVisibleNodes,
-                    maxDepth: 0
-                ),
-                startingAt: nodes.count
-            ))
-        }
+        nodes.append(contentsOf: reindexedNodes(
+            menuBarNodes(
+                appElement: appElement,
+                focusedElement: focusedElement,
+                fallbackFrame: windowMatch.frame,
+                filterVisibleNodes: filterVisibleNodes
+            ),
+            startingAt: nodes.count
+        ))
+        nodes.append(contentsOf: reindexedNodes(
+            statusMenuExtraNodes(
+                appElement: appElement,
+                focusedElement: focusedElement,
+                fallbackFrame: windowMatch.frame,
+                filterVisibleNodes: filterVisibleNodes
+            ),
+            startingAt: nodes.count
+        ))
 
         let focusedIndex = focusedElement.flatMap { focused in
             nodes.first(where: { CFEqual($0.element, focused) })?.index
@@ -581,12 +556,135 @@ enum ComputerUseCore {
         )
     }
 
+    private static func runMainAXRead<T>(_ body: @escaping () -> T) -> T {
+        if Thread.isMainThread {
+            return body()
+        }
+
+        let operation = MainAXReadOperation(body)
+        DispatchQueue.main.sync {
+            operation.run()
+        }
+        return operation.result!
+    }
+
+    private static func menuSurfaceSnapshot(
+        app: NSRunningApplication,
+        appElement: AXUIElement,
+        windowMatch: (element: AXUIElement, title: String, frame: CGRect, cgWindow: CUWindowSnapshot),
+        focusedElement: AXUIElement?,
+        filterVisibleNodes: Bool
+    ) -> RuntimeAppSnapshot? {
+        runMainAXRead {
+            guard let popupMenu = activeMenuBarItemCandidate(in: appElement) ??
+                activeStatusMenuItemCandidate(in: appElement) ??
+                popupMenuCandidate(in: appElement)
+            else {
+                return nil
+            }
+
+            let nodes = flattenTree(
+                from: popupMenu.element,
+                focusedElement: focusedElement,
+                visibleFrame: popupMenu.frame,
+                filterVisibleNodes: filterVisibleNodes
+            )
+            let focusedIndex = focusedElement.flatMap { focused in
+                nodes.first(where: { CFEqual($0.element, focused) })?.index
+            }
+            let selectedText = focusedElement.flatMap {
+                cuAttribute($0, name: kAXSelectedTextAttribute as String) as String?
+            }
+            let fingerprint = fingerprint(
+                app: app,
+                windowID: windowMatch.cgWindow.windowID,
+                windowTitle: windowMatch.title,
+                windowFrame: windowMatch.frame,
+                nodes: nodes,
+                focusedElementIndex: focusedIndex,
+                selectedText: selectedText
+            )
+
+            return RuntimeAppSnapshot(
+                app: app,
+                appElement: appElement,
+                windowElement: popupMenu.element,
+                surfaceKind: .menu,
+                windowID: windowMatch.cgWindow.windowID,
+                windowTitle: windowMatch.title,
+                windowFrame: windowMatch.frame,
+                nodes: nodes,
+                focusedElementIndex: focusedIndex,
+                selectedText: selectedText,
+                screenshotURL: nil,
+                screenshotSize: nil,
+                fingerprint: fingerprint
+            )
+        }
+    }
+
+    private static func menuBarNodes(
+        appElement: AXUIElement,
+        focusedElement: AXUIElement?,
+        fallbackFrame: CGRect,
+        filterVisibleNodes: Bool
+    ) -> [RuntimeAXNode] {
+        runMainAXRead {
+            guard let menuBar = cuAttribute(appElement, name: kAXMenuBarAttribute as String) as AXUIElement? else {
+                return []
+            }
+
+            return flattenTree(
+                from: menuBar,
+                focusedElement: focusedElement,
+                visibleFrame: cuFrame(menuBar) ?? fallbackFrame,
+                filterVisibleNodes: filterVisibleNodes,
+                maxDepth: 1
+            )
+        }
+    }
+
+    private static func statusMenuExtraNodes(
+        appElement: AXUIElement,
+        focusedElement: AXUIElement?,
+        fallbackFrame: CGRect,
+        filterVisibleNodes: Bool
+    ) -> [RuntimeAXNode] {
+        runMainAXRead {
+            var nodes: [RuntimeAXNode] = []
+            for statusItem in statusMenuExtraCandidates(in: appElement) {
+                nodes.append(contentsOf: reindexedNodes(
+                    flattenTree(
+                        from: statusItem,
+                        focusedElement: focusedElement,
+                        visibleFrame: cuFrame(statusItem) ?? fallbackFrame,
+                        filterVisibleNodes: filterVisibleNodes,
+                        maxDepth: 0
+                    ),
+                    startingAt: nodes.count
+                ))
+            }
+            return nodes
+        }
+    }
+
     private static func statusSurfaceSnapshot(
         app: NSRunningApplication,
         appElement: AXUIElement,
         focusedElement: AXUIElement?,
         filterVisibleNodes: Bool
     ) -> RuntimeAppSnapshot? {
+        if !Thread.isMainThread {
+            return runMainAXRead {
+                statusSurfaceSnapshot(
+                    app: app,
+                    appElement: appElement,
+                    focusedElement: focusedElement,
+                    filterVisibleNodes: filterVisibleNodes
+                )
+            }
+        }
+
         if let popupMenu = activeStatusMenuItemCandidate(in: appElement) {
             return statusSurfaceSnapshot(
                 app: app,

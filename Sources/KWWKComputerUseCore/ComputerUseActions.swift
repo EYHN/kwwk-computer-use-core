@@ -125,8 +125,16 @@ public enum ComputerUseAction {
         } else {
             point = nil
         }
+        let visualAction: ComputerUseVisualEffectAction
+        if point == nil {
+            visualAction = .targetWindow
+        } else if let node, !shouldUseMouseClickForElement(node, in: current) {
+            visualAction = .accessibilityAction
+        } else {
+            visualAction = .click
+        }
         let event = session.visualEffectEvent(
-            action: point == nil ? .targetWindow : .click,
+            action: visualAction,
             snapshot: current,
             startPoint: point
         )

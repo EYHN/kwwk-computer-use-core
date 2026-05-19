@@ -10,8 +10,28 @@ public enum ComputerUseVisualEffectAction: String, Codable, Equatable, Sendable 
     case accessibilityAction
 }
 
+public enum ComputerUseVisualEffectSurfaceKind: String, Codable, Equatable, Sendable {
+    case window
+    case status
+    case menu
+}
+
+extension ComputerUseVisualEffectSurfaceKind {
+    init(_ runtimeKind: RuntimeSurfaceKind) {
+        switch runtimeKind {
+        case .window:
+            self = .window
+        case .status:
+            self = .status
+        case .menu:
+            self = .menu
+        }
+    }
+}
+
 public struct ComputerUseVisualEffectEvent: Codable, Equatable, Sendable {
     public var action: ComputerUseVisualEffectAction
+    public var surfaceKind: ComputerUseVisualEffectSurfaceKind
     public var windowID: Int
     public var windowFrame: CGRectCodable
     public var startPoint: CGPointCodable?
@@ -20,6 +40,7 @@ public struct ComputerUseVisualEffectEvent: Codable, Equatable, Sendable {
 
     public init(
         action: ComputerUseVisualEffectAction,
+        surfaceKind: ComputerUseVisualEffectSurfaceKind = .window,
         windowID: Int,
         windowFrame: CGRectCodable,
         startPoint: CGPointCodable? = nil,
@@ -27,6 +48,7 @@ public struct ComputerUseVisualEffectEvent: Codable, Equatable, Sendable {
         detail: String? = nil
     ) {
         self.action = action
+        self.surfaceKind = surfaceKind
         self.windowID = windowID
         self.windowFrame = windowFrame
         self.startPoint = startPoint
@@ -45,7 +67,6 @@ public protocol ComputerUseVisualEffectHook: AnyObject {
 }
 
 public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, @unchecked Sendable {
-    private let lock = NSLock()
     private var borderOverlay: BorderOverlay?
 
     public init() {}
@@ -56,23 +77,27 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
     ) throws -> T {
         try withoutActuallyEscaping(action) { escapableAction in
             let actionBox = VisualEffectActionBox(escapableAction)
-            try runOnMain {
-                self.ensureBorderOverlay().attach(toCGWindow: CGWindowID(event.windowID))
-
-                switch event.action {
-                case .drag:
+            switch event.action {
+            case .drag:
+                try runOnMain {
+                    self.attachOverlay(for: event)
                     try self.runDrag(event)
-                case .click:
-                    try self.runAction(event, kind: .click(button: .left))
-                case .scroll:
-                    try self.runAction(event, kind: .scroll(direction: event.detail ?? ""))
-                case .accessibilityAction:
-                    try self.runAction(event, kind: .accessibilityAction)
-                case .keyboard, .targetWindow:
-                    break
                 }
+                return try actionBox.call()
+            case .click:
+                return try runActionAfterApproach(event, kind: .click(button: .left), actionBox: actionBox)
+            case .scroll:
+                return try runActionAfterApproach(event, kind: .scroll(direction: event.detail ?? ""), actionBox: actionBox)
+            case .accessibilityAction:
+                return try runActionAfterApproach(event, kind: .accessibilityAction, actionBox: actionBox)
+            case .targetWindow:
+                return try runActionAfterApproach(event, kind: .accessibilityAction, actionBox: actionBox)
+            case .keyboard:
+                try runOnMain {
+                    self.attachOverlay(for: event)
+                }
+                return try actionBox.call()
             }
-            return try actionBox.call()
         }
     }
 
@@ -95,21 +120,50 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
     }
 
     @MainActor
-    private func runAction(
+    private func attachOverlay(for event: ComputerUseVisualEffectEvent) {
+        guard event.surfaceKind == .window else {
+            borderOverlay?.detach()
+            return
+        }
+        ensureBorderOverlay().attach(toCGWindow: CGWindowID(event.windowID))
+    }
+
+    private func runActionAfterApproach<T>(
+        _ event: ComputerUseVisualEffectEvent,
+        kind: ActionOverlayKind,
+        actionBox: VisualEffectActionBox<T>
+    ) throws -> T {
+        try runOnMain {
+            self.attachOverlay(for: event)
+            try self.runActionApproach(event, kind: kind)
+        }
+
+        do {
+            let result = try actionBox.call()
+            try runOnMain {
+                DaemonCursor.shared.holdAfterAction()
+            }
+            return result
+        } catch {
+            try? runOnMain {
+                DaemonCursor.shared.holdAfterAction()
+            }
+            throw error
+        }
+    }
+
+    @MainActor
+    private func runActionApproach(
         _ event: ComputerUseVisualEffectEvent,
         kind: ActionOverlayKind
     ) throws {
-        try DaemonCursor.shared.runApproachThenAction(
+        try DaemonCursor.shared.runApproachToActionTarget(
             kind: kind,
             target: target(for: event),
             fallbackScreenPoint: screenPoint(for: event.startPoint, windowFrame: event.windowFrame.cgRect),
             fallbackWindowFrame: event.windowFrame.cgRect,
             tracking: tracking(for: event)
-        ) {
-            // The actual computer-use action runs after this method returns, on
-            // the caller's background executor. Keep the main thread dedicated
-            // to the visual cursor animation.
-        }
+        )
     }
 
     @MainActor
@@ -164,18 +218,16 @@ public final class AppKitComputerUseVisualEffects: ComputerUseVisualEffectHook, 
     }
 
     private func runOnMain<T>(_ body: @MainActor () throws -> T) throws -> T {
-        try lock.withLock {
-            try withoutActuallyEscaping(body) { escapable in
-                if Thread.isMainThread {
-                    let unchecked = unsafeBitCast(escapable, to: (() throws -> T).self)
-                    return try unchecked()
-                } else {
-                    let operation = MainSyncOperation(escapable)
-                    DispatchQueue.main.sync {
-                        operation.run()
-                    }
-                    return try operation.result!.get()
+        try withoutActuallyEscaping(body) { escapable in
+            if Thread.isMainThread {
+                let unchecked = unsafeBitCast(escapable, to: (() throws -> T).self)
+                return try unchecked()
+            } else {
+                let operation = MainSyncOperation(escapable)
+                DispatchQueue.main.sync {
+                    operation.run()
                 }
+                return try operation.result!.get()
             }
         }
     }

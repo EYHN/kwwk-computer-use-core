@@ -42,6 +42,31 @@ public final class DaemonCursor: @unchecked Sendable {
         tracking: ActionOverlayTracking,
         perform body: () throws -> Void
     ) throws {
+        try runApproachToActionTarget(
+            kind: kind,
+            target: target,
+            fallbackScreenPoint: fallbackScreenPoint,
+            fallbackWindowFrame: fallbackWindowFrame,
+            tracking: tracking
+        )
+
+        do {
+            try body()
+        } catch {
+            holdAfterAction()
+            throw error
+        }
+
+        holdAfterAction()
+    }
+
+    public func runApproachToActionTarget(
+        kind: ActionOverlayKind,
+        target: CursorAnchor,
+        fallbackScreenPoint: CGPoint,
+        fallbackWindowFrame: CGRect,
+        tracking: ActionOverlayTracking
+    ) throws {
         stopRequested = false
         _ = ActionOverlayRuntime.prepareAppKit()
         ensureMaterialized(target: target, fallbackWindowFrame: fallbackWindowFrame)
@@ -56,10 +81,10 @@ public final class DaemonCursor: @unchecked Sendable {
             applyPose(screenPoint: target, canvasTheta: ActionOverlayApproachConstants.cursorDockHeading)
         }
 
-        ActionOverlayRuntime.pump(for: ActionOverlayTiming.postApproachDwell)
+        ActionOverlayRuntime.pump(for: ActionOverlayTiming.preActionHold)
+    }
 
-        try body()
-
+    public func holdAfterAction() {
         ActionOverlayRuntime.pump(for: ActionOverlayTiming.finalHold)
     }
 

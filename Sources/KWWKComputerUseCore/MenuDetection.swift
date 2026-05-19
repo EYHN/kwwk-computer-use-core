@@ -9,7 +9,6 @@ struct PopupMenuCandidate {
 extension ComputerUseCore {
     static func popupMenuCandidate(in appElement: AXUIElement) -> PopupMenuCandidate? {
         let roots = cuElements(from: cuRawAttribute(appElement, name: kAXFocusedWindowAttribute as String)) +
-            cuElements(from: cuRawAttribute(appElement, name: kAXWindowsAttribute as String)) +
             cuElements(from: cuRawAttribute(appElement, name: kAXFocusedUIElementAttribute as String))
         var stack = roots
         var visited = Set<CFHashCode>()
