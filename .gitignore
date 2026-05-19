@@ -4,3 +4,7 @@ Package.resolved
 DerivedData/
 *.xcodeproj
 .DS_Store
+
+# Local-only WeChat AX benchmark
+Sources/KWWKComputerUseCore/WeChatAXBenchmark.swift
+scripts/AXWeChatBenchmark/
