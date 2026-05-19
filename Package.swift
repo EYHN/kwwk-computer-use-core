@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .library(name: "KWWKComputerUseCore", targets: ["KWWKComputerUseCore"]),
+        .executable(name: "AXWeChatBenchmark", targets: ["AXWeChatBenchmark"]),
     ],
     targets: [
         .target(
@@ -22,6 +23,11 @@ let package = Package(
                 .linkedFramework("Metal"),
                 .linkedFramework("QuartzCore"),
             ]
+        ),
+        .executableTarget(
+            name: "AXWeChatBenchmark",
+            dependencies: ["KWWKComputerUseCore"],
+            path: "scripts/AXWeChatBenchmark"
         ),
         .testTarget(
             name: "KWWKComputerUseCoreTests",
