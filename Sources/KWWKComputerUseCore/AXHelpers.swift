@@ -3,21 +3,25 @@ import ApplicationServices
 import Foundation
 
 func cuRawAttribute(_ element: AXUIElement, name: String) -> Any? {
-    var value: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
-    guard error == .success else {
-        return nil
+    ComputerUseCore.runAXRead {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        guard error == .success else {
+            return nil
+        }
+        return value
     }
-    return value
 }
 
 func cuAttribute<T>(_ element: AXUIElement, name: String) -> T? {
-    var value: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
-    guard error == .success else {
-        return nil
+    ComputerUseCore.runAXRead {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        guard error == .success else {
+            return nil
+        }
+        return value as? T
     }
-    return value as? T
 }
 
 func cuBoolAttribute(_ element: AXUIElement, name: String) -> Bool? {
@@ -33,12 +37,14 @@ func cuDescription(_ element: AXUIElement) -> String {
 }
 
 func cuActions(_ element: AXUIElement) -> [String] {
-    var value: CFArray?
-    let error = AXUIElementCopyActionNames(element, &value)
-    guard error == .success else {
-        return []
+    ComputerUseCore.runAXRead {
+        var value: CFArray?
+        let error = AXUIElementCopyActionNames(element, &value)
+        guard error == .success else {
+            return []
+        }
+        return value as? [String] ?? []
     }
-    return value as? [String] ?? []
 }
 
 func cuFrame(_ element: AXUIElement) -> CGRect? {
@@ -291,13 +297,15 @@ func cuDescendantVisibleClip(
 }
 
 func cuIsAttributeSettable(_ element: AXUIElement, name: String) -> Bool {
-    var settable = DarwinBoolean(false)
-    let error = AXUIElementIsAttributeSettable(
-        element,
-        name as CFString,
-        &settable
-    )
-    return error == .success && settable.boolValue
+    ComputerUseCore.runAXRead {
+        var settable = DarwinBoolean(false)
+        let error = AXUIElementIsAttributeSettable(
+            element,
+            name as CFString,
+            &settable
+        )
+        return error == .success && settable.boolValue
+    }
 }
 
 func cuCGPoint(from value: AXValue) -> CGPoint? {

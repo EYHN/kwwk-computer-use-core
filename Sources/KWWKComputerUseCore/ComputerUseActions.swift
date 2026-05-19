@@ -187,7 +187,7 @@ public enum ComputerUseAction {
                 explicitIndex: elementIndex
             )
 
-            if cuIsAttributeSettable(node.element, name: kAXFocusedAttribute as String) {
+            if ComputerUseCore.runAXRead({ cuIsAttributeSettable(node.element, name: kAXFocusedAttribute as String) }) {
                 _ = AXUIElementSetAttributeValue(
                     node.element,
                     kAXFocusedAttribute as CFString,
@@ -236,7 +236,7 @@ public enum ComputerUseAction {
             detail: "setValue"
         )
         return try session.performWithBackgroundActivation(on: current, visualEffect: event) {
-            if cuIsAttributeSettable(node.element, name: kAXFocusedAttribute as String) {
+            if ComputerUseCore.runAXRead({ cuIsAttributeSettable(node.element, name: kAXFocusedAttribute as String) }) {
                 _ = AXUIElementSetAttributeValue(
                     node.element,
                     kAXFocusedAttribute as CFString,

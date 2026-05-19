@@ -99,7 +99,7 @@ struct WindowSelection {
     var windowID: Int? = nil
 }
 
-private final class MainAXReadOperation<T>: @unchecked Sendable {
+private final class SyncOperation<T>: @unchecked Sendable {
     private let body: () -> T
     var result: T?
 
@@ -113,6 +113,13 @@ private final class MainAXReadOperation<T>: @unchecked Sendable {
 }
 
 enum ComputerUseCore {
+    private static let axReadQueueKey = DispatchSpecificKey<Bool>()
+    private static let axReadQueue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.kwwk.computer-use-core.ax-read")
+        queue.setSpecific(key: axReadQueueKey, value: true)
+        return queue
+    }()
+
     private typealias ResolvedWindowMatch = (
         element: AXUIElement,
         title: String,
@@ -459,9 +466,9 @@ enum ComputerUseCore {
         preferredWindowFrame: CGRect? = nil,
         filterVisibleNodes: Bool = true
     ) throws -> RuntimeAppSnapshot {
-        try runMainAXRead {
+        try runAXRead {
             Result {
-                try captureSnapshotOnMain(
+                try captureSnapshotOnAXReadQueue(
                     app: app,
                     selection: selection,
                     includeScreenshot: includeScreenshot,
@@ -474,7 +481,7 @@ enum ComputerUseCore {
         }.get()
     }
 
-    private static func captureSnapshotOnMain(
+    private static func captureSnapshotOnAXReadQueue(
         app: NSRunningApplication,
         selection: WindowSelection,
         includeScreenshot: Bool,
@@ -640,16 +647,20 @@ enum ComputerUseCore {
         }
     }
 
-    private static func runMainAXRead<T>(_ body: @escaping () -> T) -> T {
-        if Thread.isMainThread {
+    static func runAXRead<T>(_ body: @escaping () -> T) -> T {
+        if DispatchQueue.getSpecific(key: axReadQueueKey) == true {
             return body()
         }
 
-        let operation = MainAXReadOperation(body)
-        DispatchQueue.main.sync {
+        let operation = SyncOperation(body)
+        axReadQueue.sync {
             operation.run()
         }
         return operation.result!
+    }
+
+    static var isRunningAXReadQueue: Bool {
+        DispatchQueue.getSpecific(key: axReadQueueKey) == true
     }
 
     private static func transientMenuWindowFrame(for pid: pid_t) -> CGRect? {
@@ -696,7 +707,7 @@ enum ComputerUseCore {
         transientMenuWindowFrame: CGRect?,
         filterVisibleNodes: Bool
     ) -> RuntimeAppSnapshot? {
-        runMainAXRead {
+        runAXRead {
             if let menuWindowFrame = transientMenuWindowFrame {
                 let roots = [appElement, windowMatch.element] + cuElements(from: focusedElement)
                 if let popupMenu = popupMenuCandidate(
@@ -783,7 +794,7 @@ enum ComputerUseCore {
         fallbackFrame: CGRect,
         filterVisibleNodes: Bool
     ) -> [RuntimeAXNode] {
-        runMainAXRead {
+        runAXRead {
             guard let menuBar = cuAttribute(appElement, name: kAXMenuBarAttribute as String) as AXUIElement? else {
                 return []
             }
@@ -804,7 +815,7 @@ enum ComputerUseCore {
         fallbackFrame: CGRect,
         filterVisibleNodes: Bool
     ) -> [RuntimeAXNode] {
-        runMainAXRead {
+        runAXRead {
             var nodes: [RuntimeAXNode] = []
             for statusItem in statusMenuExtras {
                 nodes.append(contentsOf: reindexedNodes(
@@ -830,8 +841,8 @@ enum ComputerUseCore {
         statusMenuExtras: [AXUIElement],
         filterVisibleNodes: Bool
     ) -> RuntimeAppSnapshot? {
-        if !Thread.isMainThread {
-            return runMainAXRead {
+        if !isRunningAXReadQueue {
+            return runAXRead {
                 statusSurfaceSnapshot(
                     app: app,
                     appElement: appElement,

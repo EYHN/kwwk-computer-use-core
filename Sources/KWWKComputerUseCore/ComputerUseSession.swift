@@ -357,18 +357,20 @@ public final class ComputerUseSession: @unchecked Sendable {
     }
 
     private func isTargetWindowMain(_ snapshot: RuntimeAppSnapshot) -> Bool {
-        if cuBoolAttribute(snapshot.windowElement, name: kAXMainAttribute as String) == true {
-            return true
-        }
+        ComputerUseCore.runAXRead {
+            if cuBoolAttribute(snapshot.windowElement, name: kAXMainAttribute as String) == true {
+                return true
+            }
 
-        if let mainWindow = cuAttribute(
-            snapshot.appElement,
-            name: kAXMainWindowAttribute as String
-        ) as AXUIElement?, CFEqual(mainWindow, snapshot.windowElement) {
-            return true
-        }
+            if let mainWindow = cuAttribute(
+                snapshot.appElement,
+                name: kAXMainWindowAttribute as String
+            ) as AXUIElement?, CFEqual(mainWindow, snapshot.windowElement) {
+                return true
+            }
 
-        return false
+            return false
+        }
     }
 
     private func restoreAndFinish(_ target: ActiveTarget?) {
